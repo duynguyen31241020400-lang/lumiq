@@ -22,4 +22,4 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Repository
 
-https://github.com/duynguyen31241020400-lang/lumiq-ai
+https://github.com/duynguyen31241020400-lang/lumiq
