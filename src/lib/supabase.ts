@@ -8,6 +8,7 @@ export interface Database {
   public: {
     Tables: {
       users: {
+        Relationships: [];
         Row: {
           id: string;
           email: string | null;
@@ -32,6 +33,7 @@ export interface Database {
       };
 
       sessions: {
+        Relationships: [];
         Row: {
           id: string;
           user_id: string;
@@ -65,6 +67,7 @@ export interface Database {
       };
 
       code_snapshots: {
+        Relationships: [];
         Row: {
           id: string;
           session_id: string;
@@ -95,6 +98,7 @@ export interface Database {
       };
 
       events: {
+        Relationships: [];
         Row: {
           id: string;
           snapshot_id: string | null;
@@ -125,6 +129,7 @@ export interface Database {
       };
 
       feedback_log: {
+        Relationships: [];
         Row: {
           id: string;
           session_id: string;
@@ -157,6 +162,10 @@ export interface Database {
         };
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 }
 

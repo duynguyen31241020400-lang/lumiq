@@ -8,8 +8,6 @@ import { pauseDetector } from "@/src/lib/pauseDetector";
 import { triggerSystem } from "@/src/lib/triggerSystem";
 import type { TriggerPayload } from "@/src/lib/triggerSystem";
 
-const DEFAULT_VALUE = "# Start coding here\n";
-
 let editorInstance: Parameters<OnMount>[0] | null = null;
 
 export function getEditorValue(): string {
@@ -17,10 +15,11 @@ export function getEditorValue(): string {
 }
 
 interface CodeEditorProps {
+  starterCode: string;
   onTrigger?: (payload: TriggerPayload) => void;
 }
 
-export default function CodeEditor({ onTrigger }: CodeEditorProps) {
+export default function CodeEditor({ starterCode, onTrigger }: CodeEditorProps) {
   const onTriggerRef = useRef(onTrigger);
   onTriggerRef.current = onTrigger;
 
@@ -106,7 +105,7 @@ export default function CodeEditor({ onTrigger }: CodeEditorProps) {
       <Editor
         height="100%"
         defaultLanguage="python"
-        defaultValue={DEFAULT_VALUE}
+        defaultValue={starterCode}
         theme="vs-dark"
         options={{
           fontSize: 14,

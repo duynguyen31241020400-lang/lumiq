@@ -23,8 +23,17 @@ export interface FeedbackEntry {
 
 export interface AnalyzeResult {
   errorType: string | null;
-  feedbackText: string;
+  feedbackText: string | null;
   shouldFlag: boolean;
+}
+
+export interface AnalyzeStats {
+  totalKeystrokes: number;
+  totalDeletes: number;
+  pauseCount: number;
+  clickCount: number;
+  avgPauseDurationMs: number;
+  pauseLines: number[];
 }
 
 // ─── Typed error ──────────────────────────────────────────────────────────────
@@ -101,52 +110,78 @@ export async function callDeepseek(
 
 // ─── analyzeCode ──────────────────────────────────────────────────────────────
 
-const OBSERVER_SYSTEM_PROMPT = `You are Lumiq Observer. You watch how someone thinks when they code, not just what they produce.
+const OBSERVER_SYSTEM_PROMPT = `You are Lumiq Observer. You watch how someone thinks when they code Python, not just what they produce.
 
-You receive: a Python code snapshot + behavioral data (keystroke count, pause locations, pause durations, click count).
+Analyze the code snapshot and behavioral data. Identify if the learner is stuck due to:
+- concept_error: misunderstands what a construct does
+- syntax_habit: keeps making the same small syntax mistake
+- logic_gap: code structure won't achieve what they intend
+- attention_slip: small careless error (missing colon, wrong indent)
+- missing_prerequisite: needs to understand something else first
 
-Your job: identify if the learner is stuck due to a concept error, syntax habit, logic gap, attention slip, or missing prerequisite. Or confirm they are on track.
+Scaffold rules:
+- Level 1 (beginner): Flag early. Give a clear hint. Max 1 sentence.
+- Level 2 (intermediate): Ask a guiding question instead of giving the answer.
+- Level 3 (advanced): Only comment if they've been pausing for a long time. Be very brief.
 
-Rules:
-- Do NOT give the answer. Ask a guiding question or point to the thinking error.
-- Be direct. One sentence max for real-time feedback.
-- If nothing is wrong, return shouldFlag: false and feedbackText: null.
-- Scaffold level 1 (beginner): flag early, hint clearly. Level 2: ask guiding question. Level 3: only flag if stuck > 10 seconds.
-- Respond ONLY in JSON: { "errorType": "concept_error|syntax_habit|logic_gap|attention_slip|missing_prerequisite|null", "feedbackText": "string or null", "shouldFlag": true|false }`;
+If nothing is wrong or there's not enough code yet, return shouldFlag: false.
+
+Respond ONLY in valid JSON — no markdown, no explanation outside JSON:
+{ "errorType": "concept_error|syntax_habit|logic_gap|attention_slip|missing_prerequisite|null", "feedbackText": "one sentence max, or null", "shouldFlag": true|false }`;
+
+function buildAnalyzeUserMessage(params: {
+  code: string;
+  scaffoldLevel: 1 | 2 | 3;
+  triggerType: "newline" | "run";
+  triggerCount: number;
+  stats: AnalyzeStats;
+}): string {
+  const { code, scaffoldLevel, triggerType, triggerCount, stats } = params;
+  return `Scaffold level: ${scaffoldLevel}
+Trigger: ${triggerType} (trigger #${triggerCount})
+
+Behavioral data:
+- Keystrokes: ${stats.totalKeystrokes}, Deletes: ${stats.totalDeletes}
+- Pauses: ${stats.pauseCount} pauses, avg ${Math.round(stats.avgPauseDurationMs)}ms
+- Pause locations (lines): ${JSON.stringify(stats.pauseLines)}
+- Clicks: ${stats.clickCount}
+
+Code snapshot:
+${code}`;
+}
+
+function parseAnalyzeResult(raw: string): AnalyzeResult {
+  const cleaned = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/, "").trim();
+
+  try {
+    const parsed = JSON.parse(cleaned) as AnalyzeResult;
+    return {
+      errorType: parsed.errorType ?? null,
+      feedbackText: parsed.feedbackText ?? null,
+      shouldFlag: Boolean(parsed.shouldFlag),
+    };
+  } catch {
+    console.error("[deepseek] analyzeCode: could not parse JSON response:", cleaned);
+    return { errorType: null, feedbackText: null, shouldFlag: false };
+  }
+}
 
 export async function analyzeCode(params: {
   code: string;
-  events: CodeEvents;
   scaffoldLevel: 1 | 2 | 3;
+  triggerType: "newline" | "run";
+  triggerCount: number;
+  stats: AnalyzeStats;
 }): Promise<AnalyzeResult> {
-  const { code, events, scaffoldLevel } = params;
-
-  const userMessage = JSON.stringify({
-    code,
-    events,
-    scaffoldLevel,
-  });
-
   const raw = await callDeepseek(
     [
       { role: "system", content: OBSERVER_SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
+      { role: "user", content: buildAnalyzeUserMessage(params) },
     ],
     "deepseek-chat",
   );
 
-  // Strip markdown fences if the model wraps JSON in ```json ... ```
-  const cleaned = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/, "").trim();
-
-  let parsed: AnalyzeResult;
-  try {
-    parsed = JSON.parse(cleaned) as AnalyzeResult;
-  } catch {
-    console.error("[deepseek] analyzeCode: could not parse JSON response:", cleaned);
-    throw new DeepseekError("analyzeCode: model returned non-JSON output.");
-  }
-
-  return parsed;
+  return parseAnalyzeResult(raw);
 }
 
 // ─── generateSummary ──────────────────────────────────────────────────────────
