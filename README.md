@@ -1,20 +1,25 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Lumiq
 
-# Run and deploy your AI Studio app
+Lumiq — AI that observes how you think when coding.
 
-This contains everything you need to run your app locally.
+An AI-powered coding environment that tracks keystrokes, pauses, and click patterns to understand where a learner is stuck in their thinking process, then provides targeted feedback.
 
-View your app in AI Studio: https://ai.studio/apps/3b03a2b8-d095-4c03-9ca1-2946848aaa5a
+## Stack
 
-## Run Locally
+- Next.js 14
+- TypeScript
+- Supabase
+- Tailwind CSS
+- Vercel
 
-**Prerequisites:**  Node.js
+## Run locally
 
+1. Install dependencies: `npm install`
+2. Copy env vars for Supabase and other services into `.env.local`
+3. Start the dev server: `npm run dev`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Open [http://localhost:3000](http://localhost:3000).
+
+## Repository
+
+https://github.com/duynguyen31241020400-lang/lumiq-ai

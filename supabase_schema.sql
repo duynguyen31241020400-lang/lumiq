@@ -1,119 +1,150 @@
--- Enable pgvector extension
-CREATE EXTENSION IF NOT EXISTS vector;
+-- =============================================================================
+-- Lumiq — AI Observer schema
+-- =============================================================================
 
--- 1. Student Profiles
-CREATE TABLE student_profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    full_name TEXT,
-    persona TEXT DEFAULT 'Minh', -- Default persona from prompt
-    current_level INTEGER DEFAULT 1,
-    goals JSONB DEFAULT '[]',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+-- ---------------------------------------------------------------------------
+-- 1. users
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+  id             uuid PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
+  email          text,
+  created_at     timestamptz DEFAULT now(),
+  scaffold_level int         DEFAULT 1 CHECK (scaffold_level IN (1, 2, 3)),
+  total_sessions int         DEFAULT 0
 );
 
--- 2. Competencies (GDPT 2018)
-CREATE TABLE competencies (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    subject TEXT NOT NULL,
-    grade INTEGER NOT NULL,
-    gdpt_code TEXT UNIQUE NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    prerequisites UUID[] DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users: own row only"
+  ON users
+  FOR ALL
+  USING      (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+-- ---------------------------------------------------------------------------
+-- 2. sessions
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sessions (
+  id                  uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             uuid        REFERENCES users (id) ON DELETE CASCADE,
+  exercise_id         text        NOT NULL,
+  started_at          timestamptz DEFAULT now(),
+  ended_at            timestamptz,
+  total_triggers      int         DEFAULT 0,
+  dominant_error_type text,
+  summary_text        text
 );
 
--- 3. Student Knowledge (Knowledge State)
-CREATE TABLE student_knowledge (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    competency_id UUID REFERENCES competencies(id) ON DELETE CASCADE NOT NULL,
-    mastery_level FLOAT DEFAULT 0.0 CHECK (mastery_level >= 0.0 AND mastery_level <= 1.0),
-    embedding vector(1536), -- For knowledge similarity search
-    last_updated TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    UNIQUE(user_id, competency_id)
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "sessions: own rows only"
+  ON sessions
+  FOR ALL
+  USING      (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions (user_id);
+
+-- ---------------------------------------------------------------------------
+-- 3. code_snapshots
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS code_snapshots (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id   uuid        REFERENCES sessions (id) ON DELETE CASCADE,
+  triggered_at timestamptz DEFAULT now(),
+  trigger_type text        NOT NULL CHECK (trigger_type IN ('newline', 'run')),
+  code_content text,
+  line_count   int,
+  cursor_line  int
 );
 
--- 4. Exercises
-CREATE TABLE exercises (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    competency_id UUID REFERENCES competencies(id) ON DELETE CASCADE NOT NULL,
-    difficulty FLOAT DEFAULT 0.5 CHECK (difficulty >= 0.0 AND difficulty <= 1.0),
-    question JSONB NOT NULL, -- Structured question data
-    answer JSONB NOT NULL, -- Structured answer data
-    hints JSONB DEFAULT '[]',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+ALTER TABLE code_snapshots ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "code_snapshots: own rows via session"
+  ON code_snapshots
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = code_snapshots.session_id
+        AND s.user_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = code_snapshots.session_id
+        AND s.user_id = auth.uid()
+    )
+  );
+
+CREATE INDEX IF NOT EXISTS code_snapshots_session_id_idx ON code_snapshots (session_id);
+
+-- ---------------------------------------------------------------------------
+-- 4. events
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS events (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  snapshot_id  uuid        REFERENCES code_snapshots (id) ON DELETE CASCADE,
+  session_id   uuid        REFERENCES sessions (id) ON DELETE CASCADE,
+  event_type   text        NOT NULL CHECK (event_type IN ('keystroke', 'pause', 'click', 'delete')),
+  line_number  int,
+  duration_ms  int,
+  created_at   timestamptz DEFAULT now()
 );
 
--- 5. Learning Sessions
-CREATE TABLE learning_sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
-    session_data JSONB DEFAULT '{}',
-    started_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-    ended_at TIMESTAMP WITH TIME ZONE
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "events: own rows via session"
+  ON events
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = events.session_id
+        AND s.user_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = events.session_id
+        AND s.user_id = auth.uid()
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- 5. feedback_log
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS feedback_log (
+  id                   uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id           uuid        REFERENCES sessions (id) ON DELETE CASCADE,
+  snapshot_id          uuid        REFERENCES code_snapshots (id) ON DELETE SET NULL,
+  created_at           timestamptz DEFAULT now(),
+  error_type           text,
+  feedback_text        text,
+  scaffold_level_at_time int,
+  was_helpful          boolean     DEFAULT NULL
 );
 
--- 6. Knowledge Base for RAG
-CREATE TABLE knowledge_base (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    content TEXT NOT NULL,
-    metadata JSONB DEFAULT '{}',
-    embedding vector(3072), -- Gemini embedding-004/preview or text-embedding-3
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
-);
+ALTER TABLE feedback_log ENABLE ROW LEVEL SECURITY;
 
--- Enable full-text search on content
-ALTER TABLE knowledge_base ADD COLUMN fts tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED;
-CREATE INDEX knowledge_base_fts_idx ON knowledge_base USING GIN (fts);
+CREATE POLICY "feedback_log: own rows via session"
+  ON feedback_log
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = feedback_log.session_id
+        AND s.user_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.id = feedback_log.session_id
+        AND s.user_id = auth.uid()
+    )
+  );
 
--- Hybrid Search Function
-CREATE OR REPLACE FUNCTION hybrid_search(
-    query_text TEXT,
-    query_embedding vector(3072),
-    match_threshold FLOAT,
-    match_count INT,
-    full_text_weight FLOAT DEFAULT 1.0,
-    semantic_weight FLOAT DEFAULT 1.0
-)
-RETURNS TABLE (
-    id UUID,
-    content TEXT,
-    metadata JSONB,
-    similarity FLOAT
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        kb.id,
-        kb.content,
-        kb.metadata,
-        (
-            full_text_weight * ts_rank(kb.fts, plainto_tsquery('simple', query_text)) +
-            semantic_weight * (1 - (kb.embedding <=> query_embedding))
-        ) AS similarity
-    FROM knowledge_base kb
-    WHERE
-        (1 - (kb.embedding <=> query_embedding)) > match_threshold
-        OR kb.fts @@ plainto_tsquery('simple', query_text)
-    ORDER BY similarity DESC
-    LIMIT match_count;
-END;
-$$;
-
--- Profiles: Users can only read/write their own profile
-CREATE POLICY "Users can view own profile" ON student_profiles FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "Users can update own profile" ON student_profiles FOR UPDATE USING (auth.uid() = id);
-
--- Knowledge: Users can only read/write their own knowledge state
-CREATE POLICY "Users can view own knowledge" ON student_knowledge FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can update own knowledge" ON student_knowledge FOR ALL USING (auth.uid() = user_id);
-
--- Competencies & Exercises: Publicly readable
-ALTER TABLE competencies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE exercises ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Competencies are publicly readable" ON competencies FOR SELECT USING (true);
-CREATE POLICY "Exercises are publicly readable" ON exercises FOR SELECT USING (true);
+CREATE INDEX IF NOT EXISTS feedback_log_session_id_idx ON feedback_log (session_id);
