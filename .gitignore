@@ -22,3 +22,6 @@ metadata.json
 # Vite leftovers (not used by Next.js)
 index.html
 vite.config.ts
+
+# TypeScript build info
+*.tsbuildinfo
