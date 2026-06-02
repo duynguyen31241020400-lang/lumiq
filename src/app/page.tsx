@@ -16,6 +16,12 @@ export default function Home() {
       >
         Start Coding →
       </Link>
+
+      <footer className="absolute bottom-6 flex gap-4 font-mono text-[11px] text-[#444]">
+        <Link href="/stats" className="hover:text-[#666]">
+          Research data →
+        </Link>
+      </footer>
     </main>
   );
 }
