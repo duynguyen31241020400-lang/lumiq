@@ -2,13 +2,26 @@
 
 import { useRef, useState } from "react";
 import CodeEditor, { type CodeEditorHandle } from "@/src/components/CodeEditor";
+import SessionSummaryOverlay, {
+  type OverlayState,
+  type SessionStats,
+} from "@/src/components/SessionSummaryOverlay";
 import type { AnalyzeResult } from "@/src/lib/deepseek";
 
 const EXERCISE_ID = "exercise_01";
-const SESSION_ID =
-  typeof crypto !== "undefined"
+
+function newSessionId() {
+  return typeof crypto !== "undefined"
     ? crypto.randomUUID()
-    : "demo-session-00000000";
+    : `demo-session-${Date.now()}`;
+}
+
+interface FeedbackHistoryEntry {
+  timestamp: number;
+  errorType: string | null;
+  feedbackText: string | null;
+  shouldFlag: boolean;
+}
 
 const ERROR_TYPE_LABELS: Record<string, string> = {
   concept_error: "Concept",
@@ -20,8 +33,93 @@ const ERROR_TYPE_LABELS: Record<string, string> = {
 
 export default function EditorPage() {
   const triggerRef = useRef<CodeEditorHandle | null>(null);
+
+  // Per-session state — all reset together on "Try Another Exercise"
+  const [sessionId, setSessionId] = useState(newSessionId);
+  const [sessionKey, setSessionKey] = useState(0);
+  const [sessionStart, setSessionStart] = useState(() => Date.now());
   const [feedback, setFeedback] = useState<AnalyzeResult | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [triggerCount, setTriggerCount] = useState(0);
+  const [feedbackHistory, setFeedbackHistory] = useState<FeedbackHistoryEntry[]>([]);
+
+  // Overlay
+  const [overlayState, setOverlayState] = useState<OverlayState | "hidden">("hidden");
+  const [summaryText, setSummaryText] = useState<string | undefined>(undefined);
+  const [summaryStats, setSummaryStats] = useState<SessionStats | undefined>(undefined);
+
+  const handleFeedback = (result: AnalyzeResult | null) => {
+    setFeedback(result);
+    if (result) {
+      const entry: FeedbackHistoryEntry = {
+        timestamp: Date.now(),
+        errorType: result.errorType,
+        feedbackText: result.feedbackText,
+        shouldFlag: result.shouldFlag,
+      };
+      setTriggerCount((c) => c + 1);
+      setFeedbackHistory((h) => [...h, entry]);
+    }
+  };
+
+  const handleEndSession = async () => {
+    setOverlayState("loading");
+
+    // Build client-side fallback stats so error state still has numbers
+    const duration = Date.now() - sessionStart;
+    const totalSec = Math.round(duration / 1000);
+    const fallbackStats: SessionStats = {
+      triggerCount,
+      flaggedCount: feedbackHistory.filter((e) => e.shouldFlag).length,
+      topErrorType: null,
+      sessionDuration: { mins: Math.floor(totalSec / 60), secs: totalSec % 60 },
+    };
+
+    try {
+      const res = await fetch("/api/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          exerciseId: EXERCISE_ID,
+          triggerCount,
+          sessionDuration: duration,
+          feedbackHistory,
+        }),
+      });
+
+      if (!res.ok) throw new Error("summary api error");
+
+      const data = (await res.json()) as {
+        summaryText: string;
+        stats: SessionStats;
+        exerciseId: string;
+      };
+
+      setSummaryText(data.summaryText);
+      setSummaryStats(data.stats);
+      setOverlayState("ready");
+    } catch {
+      setSummaryStats(fallbackStats);
+      setOverlayState("error");
+    }
+  };
+
+  const handleReset = () => {
+    setSessionId(newSessionId());
+    setSessionKey((k) => k + 1);
+    setSessionStart(Date.now());
+    setFeedback(null);
+    setFeedbackHistory([]);
+    setTriggerCount(0);
+    setSummaryText(undefined);
+    setSummaryStats(undefined);
+    setOverlayState("hidden");
+  };
+
+  const handleDone = () => {
+    setOverlayState("hidden");
+  };
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#0d0d0d]">
@@ -41,6 +139,7 @@ export default function EditorPage() {
           </button>
           <button
             type="button"
+            onClick={handleEndSession}
             className="rounded border border-[#333] bg-[#111] px-3 py-1 font-mono text-[11px] text-[#888] hover:text-[#aaa]"
           >
             End Session
@@ -51,10 +150,11 @@ export default function EditorPage() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="h-full w-[65%] overflow-hidden bg-[#0a0a0a]">
           <CodeEditor
-            sessionId={SESSION_ID}
+            key={sessionKey}
+            sessionId={sessionId}
             exerciseId={EXERCISE_ID}
             scaffoldLevel={1}
-            onFeedback={setFeedback}
+            onFeedback={handleFeedback}
             onAnalyzing={setAnalyzing}
             triggerRef={triggerRef}
           />
@@ -85,7 +185,6 @@ export default function EditorPage() {
                     {ERROR_TYPE_LABELS[feedback.errorType] ?? feedback.errorType}
                   </span>
                 )}
-
                 {feedback.feedbackText ? (
                   <p className="font-mono text-[13px] leading-relaxed text-[#ccc]">
                     {feedback.feedbackText}
@@ -100,6 +199,17 @@ export default function EditorPage() {
           </div>
         </aside>
       </div>
+
+      {overlayState !== "hidden" && (
+        <SessionSummaryOverlay
+          state={overlayState}
+          summaryText={summaryText}
+          stats={summaryStats}
+          exerciseId={EXERCISE_ID}
+          onTryAnother={handleReset}
+          onDone={handleDone}
+        />
+      )}
     </div>
   );
 }

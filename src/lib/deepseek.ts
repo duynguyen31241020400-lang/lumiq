@@ -44,6 +44,7 @@ export class DeepseekError extends Error {
 export async function callDeepseek(
   messages: Message[],
   model: "deepseek-chat" | "deepseek-reasoner",
+  timeoutMs = 15_000,
 ): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
@@ -53,7 +54,7 @@ export async function callDeepseek(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
@@ -164,6 +165,7 @@ export async function generateSummary(sessionLog: FeedbackEntry[]): Promise<stri
       { role: "user", content: userMessage },
     ],
     "deepseek-reasoner",
+    30_000,
   );
 
   return summary;
