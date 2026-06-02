@@ -80,15 +80,13 @@ export async function POST(req: NextRequest) {
     shouldFlag: e.shouldFlag,
   }));
 
-  let summaryText: string;
-  try {
-    summaryText =
-      sessionLog.length > 0
-        ? await generateSummary(sessionLog)
-        : `You completed ${exerciseId} with ${triggerCount} AI observations.`;
-  } catch {
-    summaryText = `You completed ${exerciseId} with ${triggerCount} AI observations.`;
-  }
+  const summaryText = await generateSummary({
+    sessionLog,
+    sessionDuration,
+    exerciseId,
+    triggerCount,
+    finalScaffoldLevel: 1,
+  });
 
   void updateSession(sessionId, triggerCount, dominantErrorType, summaryText);
 

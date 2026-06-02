@@ -152,21 +152,81 @@ export async function analyzeCode(params: {
 
 // ─── generateSummary ──────────────────────────────────────────────────────────
 
-export async function generateSummary(sessionLog: FeedbackEntry[]): Promise<string> {
-  const userMessage = JSON.stringify({ sessionLog });
+const SUMMARY_SYSTEM_PROMPT = `You are Lumiq Observer summarizing a coding session. Your job is to give the learner a honest, specific, useful summary of how they think when they code — not generic encouragement.
 
-  const summary = await callDeepseek(
-    [
-      {
-        role: "system",
-        content:
-          "You are Lumiq Observer. Summarize a learner's full coding session from the feedback log. Identify persistent patterns, moments of insight, and where thinking broke down. You decide the format.",
-      },
-      { role: "user", content: userMessage },
-    ],
-    "deepseek-reasoner",
-    30_000,
-  );
+You have access to: all AI observations from the session, error types flagged, how many triggers fired, total session duration, and which exercise they worked on.
 
-  return summary;
+Rules:
+- Be direct. No fluff. No "great job!"
+- Focus on PATTERNS, not individual mistakes
+- Tell them ONE thing they should focus on next time
+- If you have enough data, name the specific concept they're weak on
+- If there were no flags, say so plainly: "No issues detected. Either you nailed it or the session was too short to observe."
+- Format: your choice. Could be 2-3 sentences, could be 3 bullet points. Whatever fits the data.
+- Max 100 words.`;
+
+export async function generateSummary(params: {
+  sessionLog: FeedbackEntry[];
+  sessionDuration: number; // ms
+  exerciseId: string;
+  triggerCount: number;
+  finalScaffoldLevel?: 1 | 2 | 3;
+}): Promise<string> {
+  const { sessionLog, sessionDuration, exerciseId, triggerCount, finalScaffoldLevel = 1 } =
+    params;
+
+  const flagCount = sessionLog.filter((e) => e.shouldFlag).length;
+  const mins = Math.floor(sessionDuration / 60000);
+  const secs = Math.round((sessionDuration % 60000) / 1000);
+  const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+  const errorTypes = sessionLog
+    .map((e) => e.errorType)
+    .filter((e): e is string => !!e);
+  const dominantErrorType = errorTypes.length > 0 ? errorTypes[0] : "none";
+
+  const observations = sessionLog
+    .filter((e) => e.feedbackText)
+    .map((e) => `- [${e.errorType ?? "neutral"}] ${e.feedbackText}`)
+    .join("\n");
+
+  const userMessage = `Session: ${exerciseId}, ${durationStr}
+Triggers fired: ${triggerCount}
+AI flags: ${flagCount} out of ${triggerCount}
+
+Observations:
+${observations || "(no flagged observations)"}
+
+Most common error type: ${dominantErrorType}
+Scaffold level at end: ${finalScaffoldLevel}`;
+
+  try {
+    // Try deepseek-reasoner first with 25s timeout (fallback window)
+    const summary = await callDeepseek(
+      [
+        { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+        { role: "user", content: userMessage },
+      ],
+      "deepseek-reasoner",
+      25_000,
+    );
+    return summary;
+  } catch (err) {
+    // Reasoner timed out or failed; fall back to chat
+    console.error("[deepseek] generateSummary reasoner failed:", (err as Error).message);
+    try {
+      const summary = await callDeepseek(
+        [
+          { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+          { role: "user", content: userMessage },
+        ],
+        "deepseek-chat",
+        10_000,
+      );
+      return summary;
+    } catch (chatErr) {
+      console.error("[deepseek] generateSummary chat fallback also failed:", (chatErr as Error).message);
+      return `Session complete. ${flagCount} observations logged.`;
+    }
+  }
 }
