@@ -148,3 +148,10 @@ CREATE POLICY "feedback_log: own rows via session"
   );
 
 CREATE INDEX IF NOT EXISTS feedback_log_session_id_idx ON feedback_log (session_id);
+
+-- ---------------------------------------------------------------------------
+-- Demo mode: drop FK so feedback_log inserts succeed without a valid session
+-- Re-add this constraint once auth is fully wired up.
+-- ---------------------------------------------------------------------------
+ALTER TABLE feedback_log
+  DROP CONSTRAINT IF EXISTS feedback_log_session_id_fkey;
