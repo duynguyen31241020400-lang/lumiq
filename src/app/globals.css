@@ -1,10 +1,35 @@
 @import "tailwindcss";
 
+:root {
+  --lumiq-bg-deep: #0a0a0a;
+  --lumiq-bg-panel: #0f0f0f;
+  --lumiq-bg-card: #141414;
+  --lumiq-bg-elevated: #1a1a1a;
+  --lumiq-border: #1e1e1e;
+  --lumiq-border-subtle: #2a2a2a;
+  --lumiq-text-primary: #e8e8e8;
+  --lumiq-text-secondary: #999999;
+  --lumiq-text-tertiary: #555555;
+  --lumiq-text-faint: #333333;
+  --lumiq-accent: #e8e0d0;
+  --lumiq-observe: #4ade80;
+}
+
 html,
 body {
-  height: 100%;
+  min-height: 100%;
   margin: 0;
-  overflow: hidden;
+  background: var(--lumiq-bg-deep);
+  color: var(--lumiq-text-primary);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.font-mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+.font-serif {
+  font-family: var(--font-serif), Georgia, serif;
 }
 
 @keyframes lumiq-watching {
@@ -19,4 +44,56 @@ body {
 
 .lumiq-watching {
   animation: lumiq-watching 2s ease-in-out infinite;
+}
+
+@keyframes lumiq-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.lumiq-fade-in {
+  animation: lumiq-fade-in 0.35s ease-out forwards;
+}
+
+@keyframes lumiq-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lumiq-overlay-in {
+  animation: lumiq-overlay-in 0.4s ease-out forwards;
+}
+
+.lumiq-summary-stagger > * {
+  animation: lumiq-fade-in 0.5s ease-out forwards;
+}
+
+.lumiq-summary-stagger > *:nth-child(2) {
+  animation-delay: 0.08s;
+  opacity: 0;
+}
+
+.lumiq-summary-stagger > *:nth-child(3) {
+  animation-delay: 0.16s;
+  opacity: 0;
+}
+
+.lumiq-summary-stagger > *:nth-child(4) {
+  animation-delay: 0.24s;
+  opacity: 0;
+}
+
+.lumiq-summary-stagger > *:nth-child(5) {
+  animation-delay: 0.32s;
+  opacity: 0;
 }

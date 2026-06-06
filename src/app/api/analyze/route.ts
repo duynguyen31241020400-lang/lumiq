@@ -3,10 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   analyzeCode,
   DeepseekError,
+  hasDeepseekKey,
   type AnalyzeResult,
   type AnalyzeStats,
 } from "@/src/lib/deepseek";
-import { createClient } from "@/src/lib/supabase";
+import { tryCreateClient } from "@/src/lib/supabase";
 
 const RATE_LIMIT_MS = 8_000;
 const ANALYZE_TIMEOUT_MS = 10_000;
@@ -19,6 +20,10 @@ interface AnalyzeRequestBody {
   stats: AnalyzeStats;
   scaffoldLevel: 1 | 2 | 3;
   triggerCount: number;
+  exerciseId?: string;
+  exerciseTitle?: string;
+  exerciseDescription?: string;
+  targetConcepts?: string[];
 }
 
 type AnalyzeResponse = AnalyzeResult & {
@@ -70,25 +75,28 @@ async function saveToSupabase(
   result: AnalyzeResult,
 ): Promise<void> {
   try {
-    const supabase = createClient();
-    const snapshotId = crypto.randomUUID();
+    const supabase = tryCreateClient();
+    if (!supabase) return;
 
-    const { error } = await supabase.from("feedback_log").insert({
+    await supabase.from("sessions").upsert(
+      {
+        id: sessionId,
+        started_at: new Date().toISOString(),
+        exercise_id: payload.exerciseId ?? "unknown",
+        total_triggers: payload.triggerCount ?? 0,
+      },
+      { onConflict: "id", ignoreDuplicates: true },
+    );
+
+    await supabase.from("feedback_log").insert({
       session_id: sessionId,
-      snapshot_id: snapshotId,
+      snapshot_id: null,
       error_type: result.errorType,
       feedback_text: result.feedbackText,
       scaffold_level_at_time: payload.scaffoldLevel,
     });
-
-    if (error) {
-      console.error("[analyze] supabase insert failed:", error.message);
-    }
-  } catch (err) {
-    console.error(
-      "[analyze] saveToSupabase error:",
-      (err as Error).message,
-    );
+  } catch {
+    // Silently ignore — demo must never crash because of Supabase
   }
 }
 
@@ -133,6 +141,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(emptyResult(Date.now() - startedAt));
   }
 
+  if (!hasDeepseekKey()) {
+    return NextResponse.json(emptyResult(Date.now() - startedAt));
+  }
+
   try {
     const result = await withTimeout(
       analyzeCode({
@@ -141,14 +153,15 @@ export async function POST(req: NextRequest) {
         triggerType: body.triggerType,
         triggerCount: body.triggerCount,
         stats: body.stats,
+        exerciseTitle: body.exerciseTitle,
+        exerciseDescription: body.exerciseDescription,
+        targetConcepts: body.targetConcepts,
       }),
       ANALYZE_TIMEOUT_MS,
     );
 
     if (result.shouldFlag && result.errorType && isUuid(sessionId)) {
-      saveToSupabase(sessionId, body, result).catch(() => {
-        // Silently fail — data loss is acceptable, demo crash is not
-      });
+      saveToSupabase(sessionId, body, result).catch(() => {});
     }
 
     return NextResponse.json({

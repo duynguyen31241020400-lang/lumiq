@@ -16,12 +16,23 @@ export function getEditorValue(): string {
 
 interface CodeEditorProps {
   starterCode: string;
+  exerciseId: string;
   onTrigger?: (payload: TriggerPayload) => void;
+  onCursorChange?: (line: number, col: number) => void;
 }
 
-export default function CodeEditor({ starterCode, onTrigger }: CodeEditorProps) {
+export default function CodeEditor({
+  starterCode,
+  exerciseId,
+  onTrigger,
+  onCursorChange,
+}: CodeEditorProps) {
   const onTriggerRef = useRef(onTrigger);
   onTriggerRef.current = onTrigger;
+  const onCursorChangeRef = useRef(onCursorChange);
+  onCursorChangeRef.current = onCursorChange;
+  const exerciseIdRef = useRef(exerciseId);
+  exerciseIdRef.current = exerciseId;
 
   const disposeListenerRef = useRef<(() => void) | null>(null);
 
@@ -34,11 +45,29 @@ export default function CodeEditor({ starterCode, onTrigger }: CodeEditorProps) 
     };
   }, []);
 
-  const handleMount: OnMount = (editor) => {
+  const handleMount: OnMount = (editor, monaco) => {
     editorInstance = editor;
     disposeListenerRef.current?.();
 
+    monaco.editor.defineTheme("lumiq-dark", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [],
+      colors: {
+        "editor.background": "#0a0a0a",
+        "editor.lineHighlightBackground": "#141414",
+        "editorGutter.background": "#0a0a0a",
+        "editorLineNumber.foreground": "#333333",
+        "editorLineNumber.activeForeground": "#555555",
+      },
+    });
+    monaco.editor.setTheme("lumiq-dark");
+
     let previousLine = editor.getPosition()?.lineNumber ?? 1;
+    const pos = editor.getPosition();
+    if (pos) {
+      onCursorChangeRef.current?.(pos.lineNumber, pos.column);
+    }
 
     const contentDisposable = editor.onDidChangeModelContent((e) => {
       let enterPressed = false;
@@ -62,7 +91,11 @@ export default function CodeEditor({ starterCode, onTrigger }: CodeEditorProps) 
       if (enterPressed) {
         const code = editor.getValue();
         const currentLine = editor.getPosition()?.lineNumber ?? 1;
-        const payload = triggerSystem.onEnterPressed(code, currentLine);
+        const payload = triggerSystem.onEnterPressed(
+          code,
+          currentLine,
+          exerciseIdRef.current,
+        );
         if (payload) {
           onTriggerRef.current?.(payload);
         }
@@ -81,6 +114,8 @@ export default function CodeEditor({ starterCode, onTrigger }: CodeEditorProps) 
     });
 
     const cursorDisposable = editor.onDidChangeCursorPosition((e) => {
+      onCursorChangeRef.current?.(e.position.lineNumber, e.position.column);
+
       const lineDiff = Math.abs(e.position.lineNumber - previousLine);
       if (lineDiff > 5 && e.reason !== 0) {
         eventBuffer.addEvent({
@@ -106,12 +141,18 @@ export default function CodeEditor({ starterCode, onTrigger }: CodeEditorProps) 
         height="100%"
         defaultLanguage="python"
         defaultValue={starterCode}
-        theme="vs-dark"
+        theme="lumiq-dark"
         options={{
           fontSize: 14,
+          fontFamily: "var(--font-mono), JetBrains Mono, monospace",
           minimap: { enabled: false },
           lineNumbers: "on",
           scrollBeyondLastLine: false,
+          padding: { top: 12 },
+          renderLineHighlight: "line",
+          overviewRulerLanes: 0,
+          hideCursorInOverviewRuler: true,
+          scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
         }}
         onMount={handleMount}
       />

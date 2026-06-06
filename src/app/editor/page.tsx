@@ -1,14 +1,19 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import CodeEditor, { getEditorValue } from "@/src/components/CodeEditor";
 import FeedbackCard, { type ErrorType } from "@/src/components/FeedbackCard";
+import SessionSummary, {
+  type SessionStats,
+} from "@/src/components/SessionSummary";
 import { eventBuffer } from "@/src/lib/eventBuffer";
 import { exercises, type Exercise } from "@/src/lib/exercises";
 import { pauseDetector } from "@/src/lib/pauseDetector";
 import { triggerSystem } from "@/src/lib/triggerSystem";
 import type { TriggerPayload } from "@/src/lib/triggerSystem";
+import type { SessionFeedbackEntry } from "@/src/lib/deepseek";
 
 type FeedbackEntry = {
   errorType: ErrorType;
@@ -22,35 +27,61 @@ interface AnalyzeResponse {
   errorType: ErrorType;
   feedbackText: string | null;
   shouldFlag: boolean;
-  latencyMs?: number;
-  error?: string;
 }
 
 const MAX_HISTORY = 10;
 const TRIGGERS_TO_LEVEL_UP = 10;
 const CONSECUTIVE_PATTERN_THRESHOLD = 3;
 
+const ERROR_LABELS: Record<string, string> = {
+  concept_error: "concept",
+  syntax_habit: "syntax",
+  logic_gap: "logic",
+  attention_slip: "attention",
+  missing_prerequisite: "prerequisite",
+};
+
 export default function EditorPage() {
+  const router = useRouter();
   const [currentExercise, setCurrentExercise] = useState<Exercise>(exercises[0]);
   const [feedbackHistory, setFeedbackHistory] = useState<FeedbackEntry[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scaffoldLevel, setScaffoldLevel] = useState<1 | 2 | 3>(1);
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
+  const [summaryState, setSummaryState] = useState<
+    "hidden" | "loading" | "ready" | "failed"
+  >("hidden");
+  const [summaryText, setSummaryText] = useState<string | null>(null);
+  const [summaryStats, setSummaryStats] = useState<SessionStats | null>(null);
+
   const scaffoldLevelRef = useRef<1 | 2 | 3>(scaffoldLevel);
   scaffoldLevelRef.current = scaffoldLevel;
 
   const sessionId = useRef(crypto.randomUUID());
+  const sessionStartedAt = useRef(Date.now());
   const triggersSinceLastFlag = useRef(0);
   const consecutiveFlagType = useRef<ErrorType>(null);
   const consecutiveFlagCount = useRef(0);
   const notedPattern = useRef<ErrorType>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
 
   const exerciseIndex = exercises.findIndex((e) => e.id === currentExercise.id);
+
+  const scrollFeedToBottom = useCallback(() => {
+    const el = feedRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  useEffect(() => {
+    scrollFeedToBottom();
+  }, [feedbackHistory, isAnalyzing, scrollFeedToBottom]);
 
   const selectExercise = (exercise: Exercise) => {
     setCurrentExercise(exercise);
     setFeedbackHistory([]);
     eventBuffer.clear();
     pauseDetector.stop();
+    setSummaryState("hidden");
   };
 
   const handleTrigger = async (payload: TriggerPayload) => {
@@ -69,16 +100,14 @@ export default function EditorPage() {
           stats: payload.stats,
           scaffoldLevel: scaffoldLevelRef.current,
           triggerCount: payload.triggerCount,
+          exerciseId: payload.exerciseId,
+          exerciseTitle: currentExercise.title,
+          exerciseDescription: currentExercise.description,
+          targetConcepts: currentExercise.targetConcepts,
         }),
       });
 
-      if (res.status === 429) {
-        return;
-      }
-
-      if (!res.ok) {
-        return;
-      }
+      if (res.status === 429 || !res.ok) return;
 
       const data = (await res.json()) as AnalyzeResponse;
 
@@ -106,7 +135,7 @@ export default function EditorPage() {
           shouldFlag: true,
         };
 
-        setFeedbackHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY));
+        setFeedbackHistory((prev) => [...prev, entry].slice(-MAX_HISTORY));
       } else {
         consecutiveFlagType.current = null;
         consecutiveFlagCount.current = 0;
@@ -121,56 +150,99 @@ export default function EditorPage() {
         }
       }
     } catch {
-      // Silently ignore — never show errors to the user
+      // silent
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleRun = () => {
-    const payload = triggerSystem.onRunPressed(getEditorValue());
+  const handleAnalyze = () => {
+    const payload = triggerSystem.onRunPressed(
+      getEditorValue(),
+      currentExercise.id,
+    );
     void handleTrigger(payload);
   };
+
+  const handleEndSession = async () => {
+    setSummaryState("loading");
+
+    const historyForApi: SessionFeedbackEntry[] = feedbackHistory.map((e) => ({
+      errorType: e.errorType,
+      feedbackText: e.feedbackText,
+      timestamp: e.timestamp,
+      triggerType: e.triggerType,
+    }));
+
+    const triggerCount = eventBuffer.getTriggerCount();
+
+    try {
+      const res = await fetch("/api/summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: sessionId.current,
+          exerciseId: currentExercise.id,
+          exerciseTitle: currentExercise.title,
+          feedbackHistory: historyForApi,
+          triggerCount,
+          sessionStartedAt: sessionStartedAt.current,
+          scaffoldLevel: scaffoldLevelRef.current,
+        }),
+      });
+
+      const data = (await res.json()) as {
+        status: string;
+        summary: string | null;
+        stats: SessionStats | null;
+      };
+
+      if (data.status === "ready" && data.summary && data.stats) {
+        setSummaryText(data.summary);
+        setSummaryStats(data.stats);
+        setSummaryState("ready");
+      } else {
+        setSummaryStats(data.stats);
+        setSummaryState("failed");
+      }
+    } catch {
+      setSummaryState("failed");
+    }
+  };
+
+  const scaffoldLabel =
+    notedPattern.current
+      ? `L${scaffoldLevel} · pattern: ${ERROR_LABELS[notedPattern.current] ?? notedPattern.current}`
+      : `L${scaffoldLevel} scaffold`;
 
   const showEmptyState = feedbackHistory.length === 0 && !isAnalyzing;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#0d0d0d]">
-      <header className="grid h-10 shrink-0 grid-cols-3 items-center border-b border-[#1e1e1e] bg-[#111] px-4">
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-[13px] text-white">Lumiq</span>
-          <span className="font-mono text-[10px] text-[#00D4AA]">● Watching</span>
-        </div>
+    <div className="flex h-screen flex-col overflow-hidden bg-[#0a0a0a]">
+      {/* Header */}
+      <header className="grid h-11 shrink-0 grid-cols-3 items-center border-b-[0.5px] border-[#1e1e1e] bg-[#0f0f0f] px-4">
+        <span className="font-mono text-[13px] font-medium text-[#e8e8e8]">
+          Lumiq
+        </span>
 
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-1.5">
           <button
             type="button"
             disabled={exerciseIndex <= 0}
             onClick={() => selectExercise(exercises[exerciseIndex - 1])}
-            className="rounded border border-[#333] bg-[#111] px-2 py-0.5 font-mono text-[11px] text-[#888] hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-30"
+            className="px-1.5 font-mono text-[11px] text-[#555] hover:text-[#999] disabled:opacity-25"
             aria-label="Previous exercise"
           >
             ←
           </button>
-          <select
-            value={currentExercise.id}
-            onChange={(e) => {
-              const next = exercises.find((ex) => ex.id === e.target.value);
-              if (next) selectExercise(next);
-            }}
-            className="max-w-[200px] truncate rounded border border-[#333] bg-[#111] px-2 py-0.5 font-mono text-[11px] text-[#aaa] outline-none"
-          >
-            {exercises.map((ex) => (
-              <option key={ex.id} value={ex.id}>
-                {ex.title}
-              </option>
-            ))}
-          </select>
+          <span className="max-w-[220px] truncate font-mono text-[11px] text-[#999]">
+            {currentExercise.title}
+          </span>
           <button
             type="button"
             disabled={exerciseIndex >= exercises.length - 1}
             onClick={() => selectExercise(exercises[exerciseIndex + 1])}
-            className="rounded border border-[#333] bg-[#111] px-2 py-0.5 font-mono text-[11px] text-[#888] hover:text-[#ccc] disabled:cursor-not-allowed disabled:opacity-30"
+            className="px-1.5 font-mono text-[11px] text-[#555] hover:text-[#999] disabled:opacity-25"
             aria-label="Next exercise"
           >
             →
@@ -180,63 +252,79 @@ export default function EditorPage() {
         <div className="flex justify-end gap-2">
           <button
             type="button"
-            onClick={handleRun}
-            className="rounded border border-[#333] bg-[#111] px-3 py-1 font-mono text-[11px] text-[#ccc] hover:border-[#444] hover:text-white"
+            onClick={handleAnalyze}
+            disabled={isAnalyzing}
+            className="rounded border-[0.5px] border-[#2a2a2a] bg-[#141414] px-3 py-1 font-mono text-[11px] text-[#E8E0D0] hover:border-[#444] disabled:opacity-40"
           >
-            Run
+            ▶ Analyze
           </button>
           <button
             type="button"
-            className="rounded border border-[#333] bg-[#111] px-3 py-1 font-mono text-[11px] text-[#888] hover:text-[#aaa]"
+            onClick={handleEndSession}
+            className="rounded border-[0.5px] border-[#2a2a2a] px-3 py-1 font-mono text-[11px] text-[#555] hover:text-[#999]"
           >
             End Session
           </button>
         </div>
       </header>
 
+      {/* Main panels */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex h-full w-[65%] flex-col overflow-hidden bg-[#0a0a0a]">
-          <div className="shrink-0 border-b border-[#1e1e1e] px-4 py-2">
-            <h2 className="font-mono text-[12px] text-[#888]">
-              {currentExercise.title}
-            </h2>
-            <p className="mt-0.5 font-mono text-[11px] text-[#555]">
+        {/* Left — IDE */}
+        <div className="flex h-full w-[62%] flex-col overflow-hidden border-r-[0.5px] border-[#1e1e1e]">
+          <div className="flex h-8 shrink-0 items-center border-b-[0.5px] border-[#1e1e1e] bg-[#0f0f0f] px-4">
+            <span className="font-mono text-[11px] text-[#555]">
+              {currentExercise.filename}
+            </span>
+            <span className="ml-3 font-mono text-[10px] text-[#333]">
               {currentExercise.description}
-            </p>
+            </span>
           </div>
-          <div className="min-h-0 flex-1">
+
+          <div className="min-h-0 flex-1 bg-[#0a0a0a]">
             <CodeEditor
               key={currentExercise.id}
               starterCode={currentExercise.starterCode}
+              exerciseId={currentExercise.id}
               onTrigger={handleTrigger}
+              onCursorChange={(line, col) => setCursorPos({ line, col })}
             />
+          </div>
+
+          <div className="flex h-7 shrink-0 items-center justify-between border-t-[0.5px] border-[#1e1e1e] bg-[#0f0f0f] px-4 font-mono text-[10px] text-[#555]">
+            <span>Python</span>
+            <span>
+              Ln {cursorPos.line}, Col {cursorPos.col}
+            </span>
+            <span className="text-[#4ade80]">● observing</span>
           </div>
         </div>
 
-        <aside className="sidebar flex h-full w-[35%] flex-col overflow-hidden border-l-[0.5px] border-[#1e1e1e] bg-[#0f0f0f]">
-          <div className="shrink-0 px-4 py-3 font-mono text-[11px] uppercase tracking-widest text-[#444]">
-            AI Observer
+        {/* Right — Observer */}
+        <aside className="flex h-full w-[38%] flex-col overflow-hidden bg-[#0f0f0f]">
+          <div className="shrink-0 border-b-[0.5px] border-[#1e1e1e] px-4 py-3">
+            <p className="font-mono text-[11px] uppercase tracking-widest text-[#555]">
+              Lumiq Observer
+            </p>
+            <p className="mt-0.5 font-mono text-[10px] text-[#333]">
+              {scaffoldLabel}
+            </p>
           </div>
 
-          <div className="flex flex-1 flex-col overflow-y-auto px-4 pb-4">
-            {showEmptyState ? (
+          <div
+            ref={feedRef}
+            className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
+          >
+            {showEmptyState && (
               <div className="flex flex-1 items-center justify-center">
-                <p className="font-mono text-[12px] italic text-[#333]">
-                  Start coding. Lumiq will watch.
+                <p className="text-center font-mono text-[12px] italic text-[#333]">
+                  Start coding. Lumiq is watching how you think.
                 </p>
               </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {isAnalyzing && (
-                  <FeedbackCard
-                    errorType={null}
-                    feedbackText={null}
-                    triggerType="newline"
-                    timestamp={Date.now()}
-                    shouldFlag={false}
-                    isLoading
-                  />
-                )}
+            )}
+
+            {!showEmptyState && (
+              <>
                 {feedbackHistory.map((entry, index) => (
                   <FeedbackCard
                     key={`${entry.timestamp}-${index}`}
@@ -247,11 +335,49 @@ export default function EditorPage() {
                     shouldFlag={entry.shouldFlag}
                   />
                 ))}
-              </div>
+                {isAnalyzing && (
+                  <FeedbackCard
+                    errorType={null}
+                    feedbackText={null}
+                    timestamp={Date.now()}
+                    shouldFlag={false}
+                    isLoading
+                  />
+                )}
+              </>
             )}
+          </div>
+
+          <div className="shrink-0 border-t-[0.5px] border-[#1e1e1e] px-4 py-2.5">
+            <p className="font-mono text-[10px] text-[#333]">
+              Lumiq observes as you code
+            </p>
           </div>
         </aside>
       </div>
+
+      {summaryState !== "hidden" && (
+        <SessionSummary
+          state={
+            summaryState === "loading"
+              ? "loading"
+              : summaryState === "ready"
+                ? "ready"
+                : "failed"
+          }
+          summary={summaryText}
+          stats={summaryStats}
+          exercise={currentExercise}
+          onTryAnother={() => {
+            setSummaryState("hidden");
+            const nextIdx = (exerciseIndex + 1) % exercises.length;
+            selectExercise(exercises[nextIdx]);
+            sessionId.current = crypto.randomUUID();
+            sessionStartedAt.current = Date.now();
+          }}
+          onDone={() => router.push("/")}
+        />
+      )}
     </div>
   );
 }

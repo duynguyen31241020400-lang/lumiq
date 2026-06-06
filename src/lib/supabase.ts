@@ -36,7 +36,7 @@ export interface Database {
         Relationships: [];
         Row: {
           id: string;
-          user_id: string;
+          user_id: string | null;
           exercise_id: string;
           started_at: string;
           ended_at: string | null;
@@ -46,7 +46,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          user_id: string;
+          user_id?: string | null;
           exercise_id: string;
           started_at?: string;
           ended_at?: string | null;
@@ -56,7 +56,7 @@ export interface Database {
         };
         Update: {
           id?: string;
-          user_id?: string;
+          user_id?: string | null;
           exercise_id?: string;
           started_at?: string;
           ended_at?: string | null;
@@ -184,4 +184,13 @@ export function createClient() {
   }
 
   return _createClient<Database>(url, key);
+}
+
+/** Returns null instead of throwing — safe for demo fire-and-forget writes. */
+export function tryCreateClient() {
+  try {
+    return createClient();
+  } catch {
+    return null;
+  }
 }

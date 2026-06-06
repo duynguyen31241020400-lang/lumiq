@@ -1,9 +1,9 @@
-﻿{
-  "name": "Lumiq AI Competition Prototype",
-  "short_name": "Lumiq AI",
-  "description": "Prototype đánh giá đầu vào và gợi ý lộ trình học Toán lớp 10 cho IU Startup Demo Day 2026.",
+{
+  "name": "Lumiq",
+  "short_name": "Lumiq",
+  "description": "AI that watches how you think when you code.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#2563eb"
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a"
 }

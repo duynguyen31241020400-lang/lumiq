@@ -17,6 +17,7 @@ export interface TriggerPayload {
   stats: EventBufferStats;
   triggeredAt: number;
   triggerCount: number;
+  exerciseId: string;
 }
 
 // ─── Boundary detection ───────────────────────────────────────────────────────
@@ -56,6 +57,7 @@ class TriggerSystem {
   private buildPayload(
     code: string,
     triggerType: TriggerType,
+    exerciseId: string,
   ): TriggerPayload {
     const events = eventBuffer.getEvents();
     const stats = eventBuffer.getStats();
@@ -69,18 +71,23 @@ class TriggerSystem {
       stats,
       triggeredAt: Date.now(),
       triggerCount: eventBuffer.getTriggerCount(),
+      exerciseId,
     };
   }
 
-  onEnterPressed(code: string, currentLine: number): TriggerPayload | null {
+  onEnterPressed(
+    code: string,
+    currentLine: number,
+    exerciseId: string,
+  ): TriggerPayload | null {
     if (!detectFunctionBoundary(code, currentLine)) {
       return null;
     }
-    return this.buildPayload(code, "newline");
+    return this.buildPayload(code, "newline", exerciseId);
   }
 
-  onRunPressed(code: string): TriggerPayload {
-    return this.buildPayload(code, "run");
+  onRunPressed(code: string, exerciseId: string): TriggerPayload {
+    return this.buildPayload(code, "run", exerciseId);
   }
 }
 

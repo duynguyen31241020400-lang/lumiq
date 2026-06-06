@@ -1,6 +1,7 @@
 export interface Exercise {
   id: string;
   title: string;
+  filename: string;
   description: string;
   starterCode: string;
   targetConcepts: string[];
@@ -12,7 +13,8 @@ export const exercises: Exercise[] = [
   {
     id: "ex_01_hello",
     title: "Hello World",
-    description: 'Print your name and a greeting.',
+    filename: "hello_world.py",
+    description: "Print your name and a greeting.",
     starterCode: '# Print "Hello, [your name]!"\n# Then print your age\n\n',
     targetConcepts: ["print function", "string literals"],
     difficulty: 1,
@@ -20,6 +22,7 @@ export const exercises: Exercise[] = [
   {
     id: "ex_02_conditional",
     title: "Grade Checker",
+    filename: "grade_checker.py",
     description:
       'Write a function that returns "Pass" if score >= 50, else "Fail".',
     starterCode:
@@ -31,6 +34,7 @@ export const exercises: Exercise[] = [
   {
     id: "ex_03_loop",
     title: "Sum Calculator",
+    filename: "sum_calculator.py",
     description: "Write a function that sums all numbers from 1 to n.",
     starterCode:
       "def sum_to_n(n):\n    total = 0\n    # Use a loop\n    \n    return total\n\nprint(sum_to_n(10))  # Should print 55\n",
@@ -41,6 +45,7 @@ export const exercises: Exercise[] = [
   {
     id: "ex_04_function",
     title: "Safe Divider",
+    filename: "safe_divider.py",
     description:
       "Write a function that divides two numbers safely (no division by zero).",
     starterCode:
@@ -52,6 +57,7 @@ export const exercises: Exercise[] = [
   {
     id: "ex_05_list",
     title: "List Filter",
+    filename: "list_filter.py",
     description:
       "Write a function that returns only the even numbers from a list.",
     starterCode:

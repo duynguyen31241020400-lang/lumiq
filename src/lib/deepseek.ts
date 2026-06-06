@@ -7,18 +7,25 @@ export interface Message {
 
 export interface CodeEvents {
   keystrokeCount: number;
-  pauseLocations: number[]; // character offsets where pauses occurred
-  pauseDurations: number[]; // ms, parallel array to pauseLocations
+  pauseLocations: number[];
+  pauseDurations: number[];
   clickCount: number;
 }
 
 export interface FeedbackEntry {
-  timestamp: number; // unix ms
+  timestamp: number;
   code: string;
   events: CodeEvents;
   errorType: string | null;
   feedbackText: string | null;
   shouldFlag: boolean;
+}
+
+export interface SessionFeedbackEntry {
+  errorType: string | null;
+  feedbackText: string | null;
+  timestamp: number;
+  triggerType: "newline" | "run";
 }
 
 export interface AnalyzeResult {
@@ -36,6 +43,13 @@ export interface AnalyzeStats {
   pauseLines: number[];
 }
 
+export interface SummaryContext {
+  exerciseTitle: string;
+  triggerCount: number;
+  flagCount: number;
+  durationMinutes: number;
+}
+
 // ─── Typed error ──────────────────────────────────────────────────────────────
 
 export class DeepseekError extends Error {
@@ -48,11 +62,16 @@ export class DeepseekError extends Error {
   }
 }
 
+export function hasDeepseekKey(): boolean {
+  return Boolean(process.env.DEEPSEEK_API_KEY);
+}
+
 // ─── Base fetch ───────────────────────────────────────────────────────────────
 
 export async function callDeepseek(
   messages: Message[],
   model: "deepseek-chat" | "deepseek-reasoner",
+  timeoutMs = 15_000,
 ): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
@@ -62,7 +81,7 @@ export async function callDeepseek(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let response: Response;
   try {
@@ -78,9 +97,8 @@ export async function callDeepseek(
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof Error && err.name === "AbortError") {
-      throw new DeepseekError("Deepseek API request timed out after 15s.");
+      throw new DeepseekError("Deepseek API request timed out.");
     }
-    // Log without the key
     console.error("[deepseek] fetch error:", (err as Error).message);
     throw new DeepseekError("Failed to reach Deepseek API.");
   } finally {
@@ -126,6 +144,8 @@ Scaffold rules:
 
 If nothing is wrong or there's not enough code yet, return shouldFlag: false.
 
+Never give the full answer. One sentence max.
+
 Respond ONLY in valid JSON — no markdown, no explanation outside JSON:
 { "errorType": "concept_error|syntax_habit|logic_gap|attention_slip|missing_prerequisite|null", "feedbackText": "one sentence max, or null", "shouldFlag": true|false }`;
 
@@ -135,10 +155,19 @@ function buildAnalyzeUserMessage(params: {
   triggerType: "newline" | "run";
   triggerCount: number;
   stats: AnalyzeStats;
+  exerciseTitle?: string;
+  exerciseDescription?: string;
+  targetConcepts?: string[];
 }): string {
   const { code, scaffoldLevel, triggerType, triggerCount, stats } = params;
+  const exerciseBlock = params.exerciseTitle
+    ? `\nExercise: ${params.exerciseTitle}
+Description: ${params.exerciseDescription ?? ""}
+Target concepts: ${JSON.stringify(params.targetConcepts ?? [])}`
+    : "";
+
   return `Scaffold level: ${scaffoldLevel}
-Trigger: ${triggerType} (trigger #${triggerCount})
+Trigger: ${triggerType} (trigger #${triggerCount})${exerciseBlock}
 
 Behavioral data:
 - Keystrokes: ${stats.totalKeystrokes}, Deletes: ${stats.totalDeletes}
@@ -151,7 +180,10 @@ ${code}`;
 }
 
 function parseAnalyzeResult(raw: string): AnalyzeResult {
-  const cleaned = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/, "").trim();
+  const cleaned = raw
+    .replace(/^```(?:json)?\n?/i, "")
+    .replace(/\n?```$/, "")
+    .trim();
 
   try {
     const parsed = JSON.parse(cleaned) as AnalyzeResult;
@@ -172,6 +204,9 @@ export async function analyzeCode(params: {
   triggerType: "newline" | "run";
   triggerCount: number;
   stats: AnalyzeStats;
+  exerciseTitle?: string;
+  exerciseDescription?: string;
+  targetConcepts?: string[];
 }): Promise<AnalyzeResult> {
   const raw = await callDeepseek(
     [
@@ -179,6 +214,7 @@ export async function analyzeCode(params: {
       { role: "user", content: buildAnalyzeUserMessage(params) },
     ],
     "deepseek-chat",
+    10_000,
   );
 
   return parseAnalyzeResult(raw);
@@ -186,20 +222,42 @@ export async function analyzeCode(params: {
 
 // ─── generateSummary ──────────────────────────────────────────────────────────
 
-export async function generateSummary(sessionLog: FeedbackEntry[]): Promise<string> {
-  const userMessage = JSON.stringify({ sessionLog });
+const SUMMARY_SYSTEM_PROMPT = `You are Lumiq Observer. Summarize a learner's coding session honestly and specifically.
 
-  const summary = await callDeepseek(
-    [
-      {
-        role: "system",
-        content:
-          "You are Lumiq Observer. Summarize a learner's full coding session from the feedback log. Identify persistent patterns, moments of insight, and where thinking broke down. You decide the format.",
-      },
-      { role: "user", content: userMessage },
-    ],
-    "deepseek-reasoner",
-  );
+Focus on thinking patterns — where they hesitated, what error types repeated, what concept they struggled with.
+Name ONE concrete thing to improve next. Max 100 words.
+No generic praise. No "great job". Be direct and useful.`;
 
-  return summary;
+const FALLBACK_SUMMARY =
+  "You worked through the exercise with several moments of hesitation. Review where pauses clustered — that's where your thinking slowed. Try the next exercise focusing on one concept at a time.";
+
+export async function generateSummary(
+  sessionLog: SessionFeedbackEntry[],
+  context: SummaryContext,
+): Promise<string> {
+  const userMessage = JSON.stringify({ sessionLog, context });
+
+  try {
+    return await callDeepseek(
+      [
+        { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+        { role: "user", content: userMessage },
+      ],
+      "deepseek-reasoner",
+      25_000,
+    );
+  } catch {
+    try {
+      return await callDeepseek(
+        [
+          { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+          { role: "user", content: userMessage },
+        ],
+        "deepseek-chat",
+        15_000,
+      );
+    } catch {
+      return FALLBACK_SUMMARY;
+    }
+  }
 }

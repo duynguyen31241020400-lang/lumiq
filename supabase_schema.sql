@@ -148,3 +148,25 @@ CREATE POLICY "feedback_log: own rows via session"
   );
 
 CREATE INDEX IF NOT EXISTS feedback_log_session_id_idx ON feedback_log (session_id);
+
+-- FK removed for demo mode; re-add after auth is implemented
+ALTER TABLE feedback_log DROP CONSTRAINT IF EXISTS feedback_log_session_id_fkey;
+
+-- ---------------------------------------------------------------------------
+-- Demo mode: allow anon read/write on sessions + feedback_log (no auth yet)
+-- Remove these policies after implementing Supabase Auth
+-- ---------------------------------------------------------------------------
+CREATE POLICY "demo anon insert sessions"
+  ON sessions FOR INSERT TO anon WITH CHECK (true);
+
+CREATE POLICY "demo anon update sessions"
+  ON sessions FOR UPDATE TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY "demo anon select sessions"
+  ON sessions FOR SELECT TO anon USING (true);
+
+CREATE POLICY "demo anon insert feedback_log"
+  ON feedback_log FOR INSERT TO anon WITH CHECK (true);
+
+CREATE POLICY "demo anon select feedback_log"
+  ON feedback_log FOR SELECT TO anon USING (true);

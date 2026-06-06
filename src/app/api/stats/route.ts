@@ -1,38 +1,40 @@
 import { NextResponse } from "next/server";
 
-import { createClient } from "@/src/lib/supabase";
+import { tryCreateClient } from "@/src/lib/supabase";
 
 export async function GET() {
-  try {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("feedback_log")
-      .select("error_type");
+  const empty = {
+    totalFeedbackEntries: 0,
+    totalSessions: 0,
+    errorTypeBreakdown: {} as Record<string, number>,
+  };
 
-    if (error) {
-      console.error("[stats] query failed:", error.message);
-      return NextResponse.json({
-        totalFeedbackEntries: 0,
-        errorTypeBreakdown: {},
-      });
+  try {
+    const supabase = tryCreateClient();
+    if (!supabase) return NextResponse.json(empty);
+
+    const [feedbackRes, sessionsRes] = await Promise.all([
+      supabase.from("feedback_log").select("error_type"),
+      supabase.from("sessions").select("id", { count: "exact", head: true }),
+    ]);
+
+    if (feedbackRes.error) {
+      console.error("[stats] feedback query failed:", feedbackRes.error.message);
     }
 
     const errorTypeBreakdown: Record<string, number> = {};
-
-    for (const row of data ?? []) {
+    for (const row of feedbackRes.data ?? []) {
       const key = row.error_type ?? "unknown";
       errorTypeBreakdown[key] = (errorTypeBreakdown[key] ?? 0) + 1;
     }
 
     return NextResponse.json({
-      totalFeedbackEntries: data?.length ?? 0,
+      totalFeedbackEntries: feedbackRes.data?.length ?? 0,
+      totalSessions: sessionsRes.count ?? 0,
       errorTypeBreakdown,
     });
   } catch (err) {
     console.error("[stats] unexpected error:", (err as Error).message);
-    return NextResponse.json({
-      totalFeedbackEntries: 0,
-      errorTypeBreakdown: {},
-    });
+    return NextResponse.json(empty);
   }
 }

@@ -25,14 +25,10 @@ function formatRelativeTime(timestamp: number): string {
   return `${minutes}m ago`;
 }
 
-function triggerLabel(triggerType: "newline" | "run"): string {
-  return triggerType === "newline" ? "↵ newline" : "▶ run";
-}
-
 export interface FeedbackCardProps {
   errorType: ErrorType;
   feedbackText: string | null;
-  triggerType: "newline" | "run";
+  triggerType?: "newline" | "run";
   timestamp: number;
   shouldFlag: boolean;
   isLoading?: boolean;
@@ -48,9 +44,11 @@ export default function FeedbackCard({
 }: FeedbackCardProps) {
   if (isLoading) {
     return (
-      <p className="lumiq-watching font-mono text-[11px] italic text-[#444]">
-        Lumiq is watching...
-      </p>
+      <div className="lumiq-fade-in rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] px-3 py-2.5">
+        <p className="lumiq-watching font-mono text-[11px] italic text-[#555]">
+          Lumiq is watching your approach...
+        </p>
+      </div>
     );
   }
 
@@ -62,29 +60,30 @@ export default function FeedbackCard({
     errorType !== null ? ACCENT_COLORS[errorType] : "#888888";
 
   return (
-    <div
-      className="rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] p-3 font-mono"
-      style={{ borderLeftWidth: "3px", borderLeftColor: accent }}
-    >
-      {errorType && (
+    <div className="lumiq-fade-in rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] p-3">
+      <div className="mb-2 flex items-center gap-2">
         <span
-          className="mb-2 inline-block text-[10px] uppercase tracking-wide"
-          style={{ color: accent }}
-        >
-          {formatErrorLabel(errorType)}
-        </span>
-      )}
-
-      {feedbackText && (
-        <p className="text-[12px] leading-[1.6] text-[#ccc]">{feedbackText}</p>
-      )}
-
-      <div className="mt-3 flex items-end justify-between gap-2">
-        <span className="text-[10px] text-[#555]">{triggerLabel(triggerType)}</span>
-        <span className="text-[10px] text-[#444]">
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: accent }}
+        />
+        {errorType && (
+          <span
+            className="font-mono text-[10px] uppercase tracking-wide"
+            style={{ color: accent }}
+          >
+            {formatErrorLabel(errorType)}
+          </span>
+        )}
+        <span className="ml-auto font-mono text-[10px] text-[#444]">
           {formatRelativeTime(timestamp)}
         </span>
       </div>
+
+      {feedbackText && (
+        <p className="font-sans text-[12px] leading-[1.6] text-[#ccc]">
+          {feedbackText}
+        </p>
+      )}
     </div>
   );
 }
