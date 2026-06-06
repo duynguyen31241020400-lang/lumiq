@@ -12,19 +12,19 @@ export interface Exercise {
 export const exercises: Exercise[] = [
   {
     id: "ex_01_hello",
-    title: "Hello World",
+    title: "Xin chào thế giới",
     filename: "hello_world.py",
-    description: "Print your name and a greeting.",
+    description: "In tên và lời chào của bạn.",
     starterCode: '# Print "Hello, [your name]!"\n# Then print your age\n\n',
     targetConcepts: ["print function", "string literals"],
     difficulty: 1,
   },
   {
     id: "ex_02_conditional",
-    title: "Grade Checker",
+    title: "Kiểm tra điểm",
     filename: "grade_checker.py",
     description:
-      'Write a function that returns "Pass" if score >= 50, else "Fail".',
+      'Viết hàm trả về "Pass" nếu điểm >= 50, ngược lại "Fail".',
     starterCode:
       "def check_grade(score):\n    # Write your logic here\n    \n\nprint(check_grade(75))\nprint(check_grade(30))\n",
     targetConcepts: ["if/else", "function return", "comparison operators"],
@@ -33,9 +33,9 @@ export const exercises: Exercise[] = [
   },
   {
     id: "ex_03_loop",
-    title: "Sum Calculator",
+    title: "Tính tổng",
     filename: "sum_calculator.py",
-    description: "Write a function that sums all numbers from 1 to n.",
+    description: "Viết hàm tính tổng các số từ 1 đến n.",
     starterCode:
       "def sum_to_n(n):\n    total = 0\n    # Use a loop\n    \n    return total\n\nprint(sum_to_n(10))  # Should print 55\n",
     targetConcepts: ["for loop", "range()", "accumulator pattern"],
@@ -44,10 +44,10 @@ export const exercises: Exercise[] = [
   },
   {
     id: "ex_04_function",
-    title: "Safe Divider",
+    title: "Chia an toàn",
     filename: "safe_divider.py",
     description:
-      "Write a function that divides two numbers safely (no division by zero).",
+      "Viết hàm chia hai số an toàn (không chia cho 0).",
     starterCode:
       "def safe_divide(a, b):\n    # What happens if b is 0?\n    \n\nprint(safe_divide(10, 2))   # 5.0\nprint(safe_divide(10, 0))   # Should handle this\n",
     targetConcepts: ["conditional", "edge cases", "None return"],
@@ -56,10 +56,10 @@ export const exercises: Exercise[] = [
   },
   {
     id: "ex_05_list",
-    title: "List Filter",
+    title: "Lọc danh sách",
     filename: "list_filter.py",
     description:
-      "Write a function that returns only the even numbers from a list.",
+      "Viết hàm trả về chỉ các số chẵn trong một danh sách.",
     starterCode:
       "def get_evens(numbers):\n    result = []\n    # Loop and filter\n    \n    return result\n\nprint(get_evens([1, 2, 3, 4, 5, 6]))  # [2, 4, 6]\n",
     targetConcepts: ["list iteration", "modulo operator", "append"],

@@ -1,10 +1,6 @@
-export type ErrorType =
-  | "concept_error"
-  | "syntax_habit"
-  | "logic_gap"
-  | "attention_slip"
-  | "missing_prerequisite"
-  | null;
+import { ERROR_LABELS_VI, type ErrorType } from "@/src/lib/errorLabels";
+
+export type { ErrorType };
 
 const ACCENT_COLORS: Record<NonNullable<ErrorType>, string> = {
   concept_error: "#7B8CDE",
@@ -14,15 +10,15 @@ const ACCENT_COLORS: Record<NonNullable<ErrorType>, string> = {
   missing_prerequisite: "#C084FC",
 };
 
-function formatErrorLabel(errorType: NonNullable<ErrorType>): string {
-  return errorType.replace(/_/g, " ");
-}
+const LUMIQ_ANSWER_ACCENT = "#E8E0D0";
 
 function formatRelativeTime(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return "just now";
+  if (seconds < 60) return "vừa xong";
   const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ago`;
+  if (minutes < 60) return `${minutes}p trước`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}g trước`;
 }
 
 export interface FeedbackCardProps {
@@ -32,32 +28,49 @@ export interface FeedbackCardProps {
   timestamp: number;
   shouldFlag: boolean;
   isLoading?: boolean;
+  variant?: "observation" | "answer";
 }
 
 export default function FeedbackCard({
   errorType,
   feedbackText,
-  triggerType,
   timestamp,
   shouldFlag,
   isLoading = false,
+  variant = "observation",
 }: FeedbackCardProps) {
   if (isLoading) {
+    const loadingText =
+      variant === "answer"
+        ? "Lumiq đang suy nghĩ..."
+        : "Lumiq đang theo dõi cách bạn tiếp cận...";
+
     return (
       <div className="lumiq-fade-in rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] px-3 py-2.5">
         <p className="lumiq-watching font-mono text-[11px] italic text-[#555]">
-          Lumiq is watching your approach...
+          {loadingText}
         </p>
       </div>
     );
   }
 
-  if (!shouldFlag) {
+  if (variant === "observation" && !shouldFlag) {
     return null;
   }
 
+  const isAnswer = variant === "answer";
   const accent =
-    errorType !== null ? ACCENT_COLORS[errorType] : "#888888";
+    isAnswer
+      ? LUMIQ_ANSWER_ACCENT
+      : errorType !== null
+        ? ACCENT_COLORS[errorType]
+        : "#888888";
+
+  const label = isAnswer
+    ? "Lumiq trả lời"
+    : errorType
+      ? ERROR_LABELS_VI[errorType]
+      : null;
 
   return (
     <div className="lumiq-fade-in rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] p-3">
@@ -66,12 +79,12 @@ export default function FeedbackCard({
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ backgroundColor: accent }}
         />
-        {errorType && (
+        {label && (
           <span
             className="font-mono text-[10px] uppercase tracking-wide"
             style={{ color: accent }}
           >
-            {formatErrorLabel(errorType)}
+            {label}
           </span>
         )}
         <span className="ml-auto font-mono text-[10px] text-[#444]">

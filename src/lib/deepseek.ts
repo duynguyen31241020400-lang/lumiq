@@ -146,8 +146,10 @@ If nothing is wrong or there's not enough code yet, return shouldFlag: false.
 
 Never give the full answer. One sentence max.
 
+Trả lời feedbackText bằng tiếng Việt, ngắn gọn, tự nhiên. Tối đa 1 câu. Ví dụ thay vì "You confused elif with a standalone statement" hãy nói "Bạn đang nhầm elif là câu lệnh độc lập — nó phải đi kèm với if trước đó."
+
 Respond ONLY in valid JSON — no markdown, no explanation outside JSON:
-{ "errorType": "concept_error|syntax_habit|logic_gap|attention_slip|missing_prerequisite|null", "feedbackText": "one sentence max, or null", "shouldFlag": true|false }`;
+{ "errorType": "concept_error|syntax_habit|logic_gap|attention_slip|missing_prerequisite|null", "feedbackText": "one sentence max in Vietnamese, or null", "shouldFlag": true|false }`;
 
 function buildAnalyzeUserMessage(params: {
   code: string;
@@ -222,14 +224,86 @@ export async function analyzeCode(params: {
 
 // ─── generateSummary ──────────────────────────────────────────────────────────
 
-const SUMMARY_SYSTEM_PROMPT = `You are Lumiq Observer. Summarize a learner's coding session honestly and specifically.
-
-Focus on thinking patterns — where they hesitated, what error types repeated, what concept they struggled with.
-Name ONE concrete thing to improve next. Max 100 words.
-No generic praise. No "great job". Be direct and useful.`;
+const SUMMARY_SYSTEM_PROMPT = `Bạn là Lumiq Observer đang tổng kết một phiên lập trình. Hãy đưa ra nhận xét thật thà, cụ thể, hữu ích về cách người học tư duy khi code — không phải lời khen chung chung.
+Tập trung vào PATTERN, không phải lỗi đơn lẻ. Chỉ ra MỘT điều họ cần cải thiện lần sau. Nếu không có flag: "Không phát hiện vấn đề — bạn làm tốt hoặc phiên quá ngắn để quan sát." Format tự chọn (2-3 câu hoặc 3 gạch đầu dòng). Tối đa 100 từ. Không nói "giỏi lắm" hay "cố lên".`;
 
 const FALLBACK_SUMMARY =
-  "You worked through the exercise with several moments of hesitation. Review where pauses clustered — that's where your thinking slowed. Try the next exercise focusing on one concept at a time.";
+  "Bạn đã làm bài với vài lần dừng lại để suy nghĩ. Xem lại những chỗ bạn pause — đó là nơi tư duy chậm lại. Thử bài tiếp theo, tập trung một khái niệm mỗi lần.";
+
+const ASK_SYSTEM_PROMPT = `Bạn là Lumiq — một AI quan sát cách lập trình viên tư duy khi code, không chỉ kết quả cuối.
+
+Người dùng đang hỏi bạn một câu hỏi về code của họ. Bạn có thể thấy code hiện tại, lịch sử các quan sát trong phiên làm việc này, và số liệu hành vi (số lần trigger, số lần flag, loại lỗi phổ biến nhất).
+
+Nguyên tắc trả lời:
+- Trả lời bằng tiếng Việt, tự nhiên, như một người thầy hiểu học sinh của mình
+- KHÔNG đưa đáp án trực tiếp. Hướng dẫn cách suy nghĩ đúng.
+- Tham chiếu cụ thể vào code của họ khi có thể
+- Nếu câu hỏi liên quan đến lỗi mà Lumiq đã từng flag trong phiên này, nhắc lại pattern đó
+- Ngắn gọn: tối đa 3-4 câu
+- Nếu câu hỏi quá chung chung (không liên quan code), nói "Hãy hỏi về code bạn đang viết — tôi đang theo dõi đó."`;
+
+export interface AskSessionStats {
+  triggerCount: number;
+  flagCount: number;
+  dominantErrorType: string | null;
+}
+
+export interface AskFeedbackHistoryItem {
+  errorType: string | null;
+  feedbackText: string | null;
+  timestamp: number;
+}
+
+function buildFeedbackHistorySummary(
+  history: AskFeedbackHistoryItem[],
+): string {
+  if (history.length === 0) return "Chưa có quan sát nào trong phiên này.";
+  return history
+    .map((entry, i) => {
+      const type = entry.errorType ?? "không xác định";
+      const text = entry.feedbackText ?? "";
+      return `${i + 1}. [${type}] ${text}`;
+    })
+    .join("\n");
+}
+
+function buildAskUserMessage(params: {
+  question: string;
+  code: string;
+  feedbackHistory: AskFeedbackHistoryItem[];
+  sessionStats: AskSessionStats;
+  exerciseId: string;
+}): string {
+  const { question, code, feedbackHistory, sessionStats, exerciseId } = params;
+  const dominant = sessionStats.dominantErrorType ?? "không có";
+
+  return `Bài tập hiện tại: ${exerciseId}
+Code hiện tại:
+${code}
+
+Lịch sử quan sát phiên này:
+${buildFeedbackHistorySummary(feedbackHistory)}
+Thống kê: ${sessionStats.triggerCount} lần phân tích, ${sessionStats.flagCount} lần flag, lỗi phổ biến: ${dominant}
+
+Câu hỏi: ${question}`;
+}
+
+export async function askLumiq(params: {
+  question: string;
+  code: string;
+  feedbackHistory: AskFeedbackHistoryItem[];
+  sessionStats: AskSessionStats;
+  exerciseId: string;
+}): Promise<string> {
+  return callDeepseek(
+    [
+      { role: "system", content: ASK_SYSTEM_PROMPT },
+      { role: "user", content: buildAskUserMessage(params) },
+    ],
+    "deepseek-chat",
+    15_000,
+  );
+}
 
 export async function generateSummary(
   sessionLog: SessionFeedbackEntry[],

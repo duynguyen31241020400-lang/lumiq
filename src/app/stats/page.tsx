@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { formatErrorLabelVi } from "@/src/lib/errorLabels";
+
 interface StatsData {
   totalFeedbackEntries: number;
   totalSessions: number;
@@ -17,10 +19,6 @@ const ERROR_COLORS: Record<string, string> = {
   missing_prerequisite: "#C084FC",
   unknown: "#555555",
 };
-
-function formatLabel(key: string): string {
-  return key.replace(/_/g, " ");
-}
 
 export default function StatsPage() {
   const [stats, setStats] = useState<StatsData | null>(null);
@@ -54,22 +52,22 @@ export default function StatsPage() {
         </Link>
 
         <h1 className="mt-6 font-mono text-[20px] text-[#e8e8e8]">
-          Research Data
+          Lumiq Observer · Dữ liệu nghiên cứu
         </h1>
         <p className="mt-2 font-sans text-[13px] text-[#555]">
-          Insights collected from coding observation sessions.
+          Dữ liệu thu thập từ các phiên quan sát lập trình.
         </p>
 
         {loading ? (
           <p className="mt-12 font-mono text-[12px] italic text-[#333]">
-            Loading...
+            Đang tải...
           </p>
         ) : (
           <>
             <div className="mt-10 grid grid-cols-2 gap-4">
               <div className="rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] p-4">
                 <p className="font-mono text-[10px] uppercase text-[#555]">
-                  Insights
+                  quan sát
                 </p>
                 <p className="mt-2 font-mono text-[32px] text-[#e8e8e8]">
                   {stats?.totalFeedbackEntries ?? 0}
@@ -77,7 +75,7 @@ export default function StatsPage() {
               </div>
               <div className="rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] p-4">
                 <p className="font-mono text-[10px] uppercase text-[#555]">
-                  Sessions
+                  phiên làm việc
                 </p>
                 <p className="mt-2 font-mono text-[32px] text-[#e8e8e8]">
                   {stats?.totalSessions ?? 0}
@@ -87,11 +85,11 @@ export default function StatsPage() {
 
             <div className="mt-10 space-y-3">
               <p className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
-                Error type breakdown
+                Phân loại lỗi
               </p>
               {Object.keys(breakdown).length === 0 ? (
                 <p className="font-mono text-[12px] italic text-[#333]">
-                  No data yet. Run a session first.
+                  Chưa có dữ liệu. Hãy chạy một phiên trước.
                 </p>
               ) : (
                 Object.entries(breakdown)
@@ -99,7 +97,9 @@ export default function StatsPage() {
                   .map(([type, count]) => (
                     <div key={type}>
                       <div className="mb-1 flex justify-between font-mono text-[11px]">
-                        <span className="text-[#999]">{formatLabel(type)}</span>
+                        <span className="text-[#999]">
+                          {formatErrorLabelVi(type)}
+                        </span>
                         <span className="text-[#555]">{count}</span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-[#1a1a1a]">
@@ -116,6 +116,11 @@ export default function StatsPage() {
                   ))
               )}
             </div>
+
+            <p className="mt-12 font-mono text-[10px] text-[#333]">
+              Dữ liệu thu thập qua Lumiq Observer · công cụ nghiên cứu học lập
+              trình
+            </p>
           </>
         )}
       </div>

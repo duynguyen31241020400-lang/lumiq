@@ -7,14 +7,16 @@ export default function Home() {
         Lumiq
       </h1>
       <p className="mt-4 max-w-md font-sans text-[14px] text-[#999]">
-        AI that watches how you think when you code.
+        AI quan sát cách bạn tư duy khi code.
       </p>
-      <p className="mt-2 font-mono text-[12px] text-[#333]">Private beta.</p>
+      <p className="mt-2 font-mono text-[12px] text-[#333]">
+        Đang trong giai đoạn beta.
+      </p>
       <Link
         href="/editor"
         className="mt-10 rounded border-[0.5px] border-[#2a2a2a] bg-[#141414] px-6 py-2.5 font-mono text-[13px] text-[#E8E0D0] transition-colors hover:border-[#444]"
       >
-        Start Coding →
+        Bắt đầu code →
       </Link>
 
       <footer className="absolute bottom-6">
@@ -22,7 +24,7 @@ export default function Home() {
           href="/stats"
           className="font-mono text-[11px] text-[#333] hover:text-[#555]"
         >
-          Research data →
+          Dữ liệu nghiên cứu →
         </Link>
       </footer>
     </main>

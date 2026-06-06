@@ -1,5 +1,6 @@
 "use client";
 
+import { formatErrorLabelVi } from "@/src/lib/errorLabels";
 import type { Exercise } from "@/src/lib/exercises";
 
 export interface SessionStats {
@@ -19,11 +20,6 @@ interface SessionSummaryProps {
   onDone: () => void;
 }
 
-function formatError(type: string | null): string {
-  if (!type) return "—";
-  return type.replace(/_/g, " ");
-}
-
 export default function SessionSummary({
   state,
   summary,
@@ -38,10 +34,10 @@ export default function SessionSummary({
         {state === "loading" && (
           <div className="text-center">
             <p className="lumiq-watching font-serif text-[22px] text-[#e8e8e8]">
-              Generating summary...
+              Đang tổng kết phiên...
             </p>
             <p className="mt-3 font-mono text-[11px] text-[#555]">
-              Lumiq is reviewing your thinking patterns
+              Lumiq đang xem lại cách bạn tư duy
             </p>
           </div>
         )}
@@ -49,10 +45,10 @@ export default function SessionSummary({
         {state === "failed" && (
           <div className="text-center">
             <p className="font-serif text-[22px] text-[#e8e8e8]">
-              Session ended
+              Phiên kết thúc
             </p>
             <p className="mt-3 font-sans text-[13px] text-[#999]">
-              Summary unavailable. Your session data was still recorded.
+              Có lỗi xảy ra. Dữ liệu đã được lưu.
             </p>
             <div className="mt-8 flex justify-center gap-3">
               <button
@@ -60,14 +56,14 @@ export default function SessionSummary({
                 onClick={onTryAnother}
                 className="rounded border border-[#2a2a2a] bg-[#141414] px-4 py-2 font-mono text-[12px] text-[#E8E0D0] hover:border-[#444]"
               >
-                Try Another Exercise
+                Thử bài khác
               </button>
               <button
                 type="button"
                 onClick={onDone}
                 className="rounded border border-[#2a2a2a] px-4 py-2 font-mono text-[12px] text-[#999] hover:text-[#ccc]"
               >
-                Done
+                Xong
               </button>
             </div>
           </div>
@@ -76,13 +72,13 @@ export default function SessionSummary({
         {state === "ready" && stats && (
           <div className="lumiq-summary-stagger">
             <h2 className="font-serif text-[28px] text-[#e8e8e8]">
-              Session Complete
+              Phiên kết thúc
             </h2>
 
             <div className="mt-6 grid grid-cols-4 gap-3 border-y border-[#1e1e1e] py-4">
               <div>
                 <p className="font-mono text-[10px] uppercase text-[#555]">
-                  Triggers
+                  lần phân tích
                 </p>
                 <p className="mt-1 font-mono text-[18px] text-[#e8e8e8]">
                   {stats.triggerCount}
@@ -90,7 +86,7 @@ export default function SessionSummary({
               </div>
               <div>
                 <p className="font-mono text-[10px] uppercase text-[#555]">
-                  Flags
+                  phát hiện
                 </p>
                 <p className="mt-1 font-mono text-[18px] text-[#e8e8e8]">
                   {stats.flagCount}
@@ -98,18 +94,18 @@ export default function SessionSummary({
               </div>
               <div>
                 <p className="font-mono text-[10px] uppercase text-[#555]">
-                  Top issue
+                  lỗi phổ biến
                 </p>
                 <p className="mt-1 font-mono text-[12px] text-[#999]">
-                  {formatError(stats.dominantErrorType)}
+                  {formatErrorLabelVi(stats.dominantErrorType)}
                 </p>
               </div>
               <div>
                 <p className="font-mono text-[10px] uppercase text-[#555]">
-                  Time
+                  thời gian code
                 </p>
                 <p className="mt-1 font-mono text-[18px] text-[#e8e8e8]">
-                  {stats.durationMinutes}m
+                  {stats.durationMinutes}p
                 </p>
               </div>
             </div>
@@ -130,14 +126,14 @@ export default function SessionSummary({
                 onClick={onTryAnother}
                 className="rounded border border-[#2a2a2a] bg-[#141414] px-4 py-2 font-mono text-[12px] text-[#E8E0D0] hover:border-[#444]"
               >
-                Try Another Exercise
+                Thử bài khác
               </button>
               <button
                 type="button"
                 onClick={onDone}
                 className="rounded border border-[#2a2a2a] px-4 py-2 font-mono text-[12px] text-[#999] hover:text-[#ccc]"
               >
-                Done
+                Xong
               </button>
             </div>
           </div>

@@ -1,14 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import AskLumiqInput from "@/src/components/AskLumiqInput";
 import CodeEditor, { getEditorValue } from "@/src/components/CodeEditor";
-import FeedbackCard, { type ErrorType } from "@/src/components/FeedbackCard";
+import FeedbackCard from "@/src/components/FeedbackCard";
+import type { ErrorType } from "@/src/lib/errorLabels";
 import SessionSummary, {
   type SessionStats,
 } from "@/src/components/SessionSummary";
+import UserQuestionBubble from "@/src/components/UserQuestionBubble";
 import { eventBuffer } from "@/src/lib/eventBuffer";
+import { formatErrorLabelVi } from "@/src/lib/errorLabels";
 import { exercises, type Exercise } from "@/src/lib/exercises";
 import { pauseDetector } from "@/src/lib/pauseDetector";
 import { triggerSystem } from "@/src/lib/triggerSystem";
@@ -23,6 +27,31 @@ type FeedbackEntry = {
   shouldFlag: boolean;
 };
 
+type AskEntry = {
+  id: string;
+  question: string;
+  answer: string | null;
+  questionTimestamp: number;
+  answerTimestamp: number | null;
+  isLoading: boolean;
+};
+
+type FeedItem =
+  | { kind: "feedback"; timestamp: number; entry: FeedbackEntry; key: string }
+  | {
+      kind: "question";
+      timestamp: number;
+      text: string;
+      key: string;
+    }
+  | {
+      kind: "answer";
+      timestamp: number;
+      text: string | null;
+      isLoading: boolean;
+      key: string;
+    };
+
 interface AnalyzeResponse {
   errorType: ErrorType;
   feedbackText: string | null;
@@ -33,19 +62,30 @@ const MAX_HISTORY = 10;
 const TRIGGERS_TO_LEVEL_UP = 10;
 const CONSECUTIVE_PATTERN_THRESHOLD = 3;
 
-const ERROR_LABELS: Record<string, string> = {
-  concept_error: "concept",
-  syntax_habit: "syntax",
-  logic_gap: "logic",
-  attention_slip: "attention",
-  missing_prerequisite: "prerequisite",
-};
+function dominantErrorType(history: FeedbackEntry[]): string | null {
+  const counts: Record<string, number> = {};
+  for (const entry of history) {
+    if (!entry.errorType) continue;
+    counts[entry.errorType] = (counts[entry.errorType] ?? 0) + 1;
+  }
+  let top: string | null = null;
+  let max = 0;
+  for (const [type, count] of Object.entries(counts)) {
+    if (count > max) {
+      max = count;
+      top = type;
+    }
+  }
+  return top;
+}
 
 export default function EditorPage() {
   const router = useRouter();
   const [currentExercise, setCurrentExercise] = useState<Exercise>(exercises[0]);
   const [feedbackHistory, setFeedbackHistory] = useState<FeedbackEntry[]>([]);
+  const [askHistory, setAskHistory] = useState<AskEntry[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isAsking, setIsAsking] = useState(false);
   const [scaffoldLevel, setScaffoldLevel] = useState<1 | 2 | 3>(1);
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const [summaryState, setSummaryState] = useState<
@@ -53,6 +93,7 @@ export default function EditorPage() {
   >("hidden");
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryStats, setSummaryStats] = useState<SessionStats | null>(null);
+  const [lastFlagAt, setLastFlagAt] = useState<number | null>(null);
 
   const scaffoldLevelRef = useRef<1 | 2 | 3>(scaffoldLevel);
   scaffoldLevelRef.current = scaffoldLevel;
@@ -67,6 +108,37 @@ export default function EditorPage() {
 
   const exerciseIndex = exercises.findIndex((e) => e.id === currentExercise.id);
 
+  const feedItems = useMemo((): FeedItem[] => {
+    const items: FeedItem[] = [];
+
+    feedbackHistory.forEach((entry, index) => {
+      items.push({
+        kind: "feedback",
+        timestamp: entry.timestamp,
+        entry,
+        key: `feedback-${entry.timestamp}-${index}`,
+      });
+    });
+
+    askHistory.forEach((ask) => {
+      items.push({
+        kind: "question",
+        timestamp: ask.questionTimestamp,
+        text: ask.question,
+        key: `question-${ask.id}`,
+      });
+      items.push({
+        kind: "answer",
+        timestamp: ask.answerTimestamp ?? ask.questionTimestamp + 1,
+        text: ask.answer,
+        isLoading: ask.isLoading,
+        key: `answer-${ask.id}`,
+      });
+    });
+
+    return items.sort((a, b) => a.timestamp - b.timestamp);
+  }, [feedbackHistory, askHistory]);
+
   const scrollFeedToBottom = useCallback(() => {
     const el = feedRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -74,14 +146,16 @@ export default function EditorPage() {
 
   useEffect(() => {
     scrollFeedToBottom();
-  }, [feedbackHistory, isAnalyzing, scrollFeedToBottom]);
+  }, [feedItems, isAnalyzing, scrollFeedToBottom]);
 
   const selectExercise = (exercise: Exercise) => {
     setCurrentExercise(exercise);
     setFeedbackHistory([]);
+    setAskHistory([]);
     eventBuffer.clear();
     pauseDetector.stop();
     setSummaryState("hidden");
+    setLastFlagAt(null);
   };
 
   const handleTrigger = async (payload: TriggerPayload) => {
@@ -113,6 +187,7 @@ export default function EditorPage() {
 
       if (data.shouldFlag) {
         triggersSinceLastFlag.current = 0;
+        setLastFlagAt(Date.now());
 
         const errorType = data.errorType;
         if (errorType && errorType === consecutiveFlagType.current) {
@@ -164,6 +239,79 @@ export default function EditorPage() {
     void handleTrigger(payload);
   };
 
+  const handleAsk = async (question: string) => {
+    const id = crypto.randomUUID();
+    const questionTimestamp = Date.now();
+
+    setAskHistory((prev) => [
+      ...prev,
+      {
+        id,
+        question,
+        answer: null,
+        questionTimestamp,
+        answerTimestamp: null,
+        isLoading: true,
+      },
+    ]);
+    setIsAsking(true);
+
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-session-id": sessionId.current,
+        },
+        body: JSON.stringify({
+          question,
+          code: getEditorValue(),
+          feedbackHistory: feedbackHistory.map((e) => ({
+            errorType: e.errorType,
+            feedbackText: e.feedbackText,
+            timestamp: e.timestamp,
+          })),
+          sessionStats: {
+            triggerCount: eventBuffer.getTriggerCount(),
+            flagCount: feedbackHistory.length,
+            dominantErrorType: dominantErrorType(feedbackHistory),
+          },
+          exerciseId: currentExercise.id,
+        }),
+      });
+
+      const data = (await res.json()) as { answer: string };
+
+      setAskHistory((prev) =>
+        prev.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                answer: data.answer,
+                answerTimestamp: Date.now(),
+                isLoading: false,
+              }
+            : entry,
+        ),
+      );
+    } catch {
+      setAskHistory((prev) =>
+        prev.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                answer: "Lumiq đang bận suy nghĩ. Thử lại sau nhé.",
+                answerTimestamp: Date.now(),
+                isLoading: false,
+              }
+            : entry,
+        ),
+      );
+    } finally {
+      setIsAsking(false);
+    }
+  };
+
   const handleEndSession = async () => {
     setSummaryState("loading");
 
@@ -210,12 +358,18 @@ export default function EditorPage() {
     }
   };
 
-  const scaffoldLabel =
-    notedPattern.current
-      ? `L${scaffoldLevel} · pattern: ${ERROR_LABELS[notedPattern.current] ?? notedPattern.current}`
-      : `L${scaffoldLevel} scaffold`;
+  const scaffoldLabel = notedPattern.current
+    ? `L${scaffoldLevel} · pattern: ${formatErrorLabelVi(notedPattern.current)}`
+    : "Đang theo dõi cách bạn tư duy";
 
-  const showEmptyState = feedbackHistory.length === 0 && !isAnalyzing;
+  const showEmptyState =
+    feedItems.length === 0 && !isAnalyzing && !isAsking;
+
+  const sidebarFooterText = isAnalyzing
+    ? "↵ Lumiq đang phân tích..."
+    : lastFlagAt && Date.now() - lastFlagAt < 30_000
+      ? "● Có phát hiện mới"
+      : "Lumiq quan sát khi bạn code";
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#0a0a0a]">
@@ -231,7 +385,7 @@ export default function EditorPage() {
             disabled={exerciseIndex <= 0}
             onClick={() => selectExercise(exercises[exerciseIndex - 1])}
             className="px-1.5 font-mono text-[11px] text-[#555] hover:text-[#999] disabled:opacity-25"
-            aria-label="Previous exercise"
+            aria-label="Bài trước"
           >
             ←
           </button>
@@ -243,7 +397,7 @@ export default function EditorPage() {
             disabled={exerciseIndex >= exercises.length - 1}
             onClick={() => selectExercise(exercises[exerciseIndex + 1])}
             className="px-1.5 font-mono text-[11px] text-[#555] hover:text-[#999] disabled:opacity-25"
-            aria-label="Next exercise"
+            aria-label="Bài sau"
           >
             →
           </button>
@@ -256,14 +410,14 @@ export default function EditorPage() {
             disabled={isAnalyzing}
             className="rounded border-[0.5px] border-[#2a2a2a] bg-[#141414] px-3 py-1 font-mono text-[11px] text-[#E8E0D0] hover:border-[#444] disabled:opacity-40"
           >
-            ▶ Analyze
+            ▶ Phân tích
           </button>
           <button
             type="button"
             onClick={handleEndSession}
             className="rounded border-[0.5px] border-[#2a2a2a] px-3 py-1 font-mono text-[11px] text-[#555] hover:text-[#999]"
           >
-            End Session
+            Kết thúc phiên
           </button>
         </div>
       </header>
@@ -296,7 +450,7 @@ export default function EditorPage() {
             <span>
               Ln {cursorPos.line}, Col {cursorPos.col}
             </span>
-            <span className="text-[#4ade80]">● observing</span>
+            <span className="text-[#4ade80]">● đang theo dõi</span>
           </div>
         </div>
 
@@ -317,24 +471,50 @@ export default function EditorPage() {
           >
             {showEmptyState && (
               <div className="flex flex-1 items-center justify-center">
-                <p className="text-center font-mono text-[12px] italic text-[#333]">
-                  Start coding. Lumiq is watching how you think.
+                <p className="whitespace-pre-line text-center font-mono text-[12px] italic text-[#333]">
+                  {
+                    "Bắt đầu code bằng Python.\nLumiq quan sát cách bạn suy nghĩ —\nkhông chỉ những gì bạn viết."
+                  }
                 </p>
               </div>
             )}
 
             {!showEmptyState && (
               <>
-                {feedbackHistory.map((entry, index) => (
-                  <FeedbackCard
-                    key={`${entry.timestamp}-${index}`}
-                    errorType={entry.errorType}
-                    feedbackText={entry.feedbackText}
-                    triggerType={entry.triggerType}
-                    timestamp={entry.timestamp}
-                    shouldFlag={entry.shouldFlag}
-                  />
-                ))}
+                {feedItems.map((item) => {
+                  if (item.kind === "feedback") {
+                    return (
+                      <FeedbackCard
+                        key={item.key}
+                        errorType={item.entry.errorType}
+                        feedbackText={item.entry.feedbackText}
+                        triggerType={item.entry.triggerType}
+                        timestamp={item.entry.timestamp}
+                        shouldFlag={item.entry.shouldFlag}
+                      />
+                    );
+                  }
+                  if (item.kind === "question") {
+                    return (
+                      <UserQuestionBubble
+                        key={item.key}
+                        question={item.text}
+                        timestamp={item.timestamp}
+                      />
+                    );
+                  }
+                  return (
+                    <FeedbackCard
+                      key={item.key}
+                      errorType={null}
+                      feedbackText={item.text}
+                      timestamp={item.timestamp}
+                      shouldFlag
+                      variant="answer"
+                      isLoading={item.isLoading}
+                    />
+                  );
+                })}
                 {isAnalyzing && (
                   <FeedbackCard
                     errorType={null}
@@ -349,9 +529,10 @@ export default function EditorPage() {
           </div>
 
           <div className="shrink-0 border-t-[0.5px] border-[#1e1e1e] px-4 py-2.5">
-            <p className="font-mono text-[10px] text-[#333]">
-              Lumiq observes as you code
+            <p className="mb-2 font-mono text-[10px] text-[#333]">
+              {sidebarFooterText}
             </p>
+            <AskLumiqInput onSubmit={handleAsk} disabled={isAsking} />
           </div>
         </aside>
       </div>
