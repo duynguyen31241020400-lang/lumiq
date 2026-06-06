@@ -240,6 +240,7 @@ Nguyên tắc trả lời:
 - Tham chiếu cụ thể vào code của họ khi có thể
 - Nếu câu hỏi liên quan đến lỗi mà Lumiq đã từng flag trong phiên này, nhắc lại pattern đó
 - Ngắn gọn: tối đa 3-4 câu
+- Nếu đây là câu hỏi tiếp theo trong hội thoại, hãy trả lời dựa trên ngữ cảnh các câu trước
 - Nếu câu hỏi quá chung chung (không liên quan code), nói "Hãy hỏi về code bạn đang viết — tôi đang theo dõi đó."`;
 
 export interface AskSessionStats {
@@ -252,6 +253,11 @@ export interface AskFeedbackHistoryItem {
   errorType: string | null;
   feedbackText: string | null;
   timestamp: number;
+}
+
+export interface AskConversationItem {
+  question: string;
+  answer: string;
 }
 
 function buildFeedbackHistorySummary(
@@ -267,14 +273,28 @@ function buildFeedbackHistorySummary(
     .join("\n");
 }
 
+function buildAskConversationSummary(
+  history: AskConversationItem[],
+): string {
+  if (history.length === 0) return "Chưa có hội thoại trước đó.";
+  return history
+    .map(
+      (entry, i) =>
+        `[${i + 1}] Hỏi: ${entry.question}\n    Trả lời: ${entry.answer}`,
+    )
+    .join("\n");
+}
+
 function buildAskUserMessage(params: {
   question: string;
   code: string;
   feedbackHistory: AskFeedbackHistoryItem[];
+  askHistory: AskConversationItem[];
   sessionStats: AskSessionStats;
   exerciseId: string;
 }): string {
-  const { question, code, feedbackHistory, sessionStats, exerciseId } = params;
+  const { question, code, feedbackHistory, askHistory, sessionStats, exerciseId } =
+    params;
   const dominant = sessionStats.dominantErrorType ?? "không có";
 
   return `Bài tập hiện tại: ${exerciseId}
@@ -283,15 +303,18 @@ ${code}
 
 Lịch sử quan sát phiên này:
 ${buildFeedbackHistorySummary(feedbackHistory)}
+Hội thoại Ask Lumiq trước đó:
+${buildAskConversationSummary(askHistory)}
 Thống kê: ${sessionStats.triggerCount} lần phân tích, ${sessionStats.flagCount} lần flag, lỗi phổ biến: ${dominant}
 
-Câu hỏi: ${question}`;
+Câu hỏi mới (trả lời câu này, có thể tham chiếu hội thoại trước): ${question}`;
 }
 
 export async function askLumiq(params: {
   question: string;
   code: string;
   feedbackHistory: AskFeedbackHistoryItem[];
+  askHistory: AskConversationItem[];
   sessionStats: AskSessionStats;
   exerciseId: string;
 }): Promise<string> {

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import AskLumiqInput from "@/src/components/AskLumiqInput";
 import CodeEditor, { getEditorValue } from "@/src/components/CodeEditor";
 import FeedbackCard from "@/src/components/FeedbackCard";
+import PythonTerminal from "@/src/components/PythonTerminal";
 import type { ErrorType } from "@/src/lib/errorLabels";
 import SessionSummary, {
   type SessionStats,
@@ -37,12 +38,19 @@ type AskEntry = {
 };
 
 type FeedItem =
-  | { kind: "feedback"; timestamp: number; entry: FeedbackEntry; key: string }
+  | {
+      kind: "feedback";
+      timestamp: number;
+      entry: FeedbackEntry;
+      key: string;
+      seq: number;
+    }
   | {
       kind: "question";
       timestamp: number;
       text: string;
       key: string;
+      seq: number;
     }
   | {
       kind: "answer";
@@ -50,6 +58,7 @@ type FeedItem =
       text: string | null;
       isLoading: boolean;
       key: string;
+      seq: number;
     };
 
 interface AnalyzeResponse {
@@ -85,7 +94,6 @@ export default function EditorPage() {
   const [feedbackHistory, setFeedbackHistory] = useState<FeedbackEntry[]>([]);
   const [askHistory, setAskHistory] = useState<AskEntry[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isAsking, setIsAsking] = useState(false);
   const [scaffoldLevel, setScaffoldLevel] = useState<1 | 2 | 3>(1);
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
   const [summaryState, setSummaryState] = useState<
@@ -105,11 +113,16 @@ export default function EditorPage() {
   const consecutiveFlagCount = useRef(0);
   const notedPattern = useRef<ErrorType>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const feedbackHistoryRef = useRef(feedbackHistory);
+  feedbackHistoryRef.current = feedbackHistory;
+  const askHistoryRef = useRef(askHistory);
+  askHistoryRef.current = askHistory;
 
   const exerciseIndex = exercises.findIndex((e) => e.id === currentExercise.id);
 
   const feedItems = useMemo((): FeedItem[] => {
     const items: FeedItem[] = [];
+    let seq = 0;
 
     feedbackHistory.forEach((entry, index) => {
       items.push({
@@ -117,6 +130,7 @@ export default function EditorPage() {
         timestamp: entry.timestamp,
         entry,
         key: `feedback-${entry.timestamp}-${index}`,
+        seq: seq++,
       });
     });
 
@@ -126,6 +140,7 @@ export default function EditorPage() {
         timestamp: ask.questionTimestamp,
         text: ask.question,
         key: `question-${ask.id}`,
+        seq: seq++,
       });
       items.push({
         kind: "answer",
@@ -133,10 +148,11 @@ export default function EditorPage() {
         text: ask.answer,
         isLoading: ask.isLoading,
         key: `answer-${ask.id}`,
+        seq: seq++,
       });
     });
 
-    return items.sort((a, b) => a.timestamp - b.timestamp);
+    return items.sort((a, b) => a.seq - b.seq);
   }, [feedbackHistory, askHistory]);
 
   const scrollFeedToBottom = useCallback(() => {
@@ -254,7 +270,15 @@ export default function EditorPage() {
         isLoading: true,
       },
     ]);
-    setIsAsking(true);
+
+    const priorAsks = askHistoryRef.current
+      .filter((entry) => entry.answer && !entry.isLoading)
+      .map((entry) => ({
+        question: entry.question,
+        answer: entry.answer as string,
+      }));
+
+    const currentFeedback = feedbackHistoryRef.current;
 
     try {
       const res = await fetch("/api/ask", {
@@ -266,15 +290,16 @@ export default function EditorPage() {
         body: JSON.stringify({
           question,
           code: getEditorValue(),
-          feedbackHistory: feedbackHistory.map((e) => ({
+          feedbackHistory: currentFeedback.map((e) => ({
             errorType: e.errorType,
             feedbackText: e.feedbackText,
             timestamp: e.timestamp,
           })),
+          askHistory: priorAsks,
           sessionStats: {
             triggerCount: eventBuffer.getTriggerCount(),
-            flagCount: feedbackHistory.length,
-            dominantErrorType: dominantErrorType(feedbackHistory),
+            flagCount: currentFeedback.length,
+            dominantErrorType: dominantErrorType(currentFeedback),
           },
           exerciseId: currentExercise.id,
         }),
@@ -307,8 +332,6 @@ export default function EditorPage() {
             : entry,
         ),
       );
-    } finally {
-      setIsAsking(false);
     }
   };
 
@@ -362,8 +385,7 @@ export default function EditorPage() {
     ? `L${scaffoldLevel} · pattern: ${formatErrorLabelVi(notedPattern.current)}`
     : "Đang theo dõi cách bạn tư duy";
 
-  const showEmptyState =
-    feedItems.length === 0 && !isAnalyzing && !isAsking;
+  const showEmptyState = feedItems.length === 0 && !isAnalyzing;
 
   const sidebarFooterText = isAnalyzing
     ? "↵ Lumiq đang phân tích..."
@@ -435,14 +457,17 @@ export default function EditorPage() {
             </span>
           </div>
 
-          <div className="min-h-0 flex-1 bg-[#0a0a0a]">
-            <CodeEditor
-              key={currentExercise.id}
-              starterCode={currentExercise.starterCode}
-              exerciseId={currentExercise.id}
-              onTrigger={handleTrigger}
-              onCursorChange={(line, col) => setCursorPos({ line, col })}
-            />
+          <div className="flex min-h-0 flex-1 flex-col bg-[#0a0a0a]">
+            <div className="min-h-0 flex-1">
+              <CodeEditor
+                key={currentExercise.id}
+                starterCode={currentExercise.starterCode}
+                exerciseId={currentExercise.id}
+                onTrigger={handleTrigger}
+                onCursorChange={(line, col) => setCursorPos({ line, col })}
+              />
+            </div>
+            <PythonTerminal getCode={getEditorValue} />
           </div>
 
           <div className="flex h-7 shrink-0 items-center justify-between border-t-[0.5px] border-[#1e1e1e] bg-[#0f0f0f] px-4 font-mono text-[10px] text-[#555]">
@@ -532,7 +557,7 @@ export default function EditorPage() {
             <p className="mb-2 font-mono text-[10px] text-[#333]">
               {sidebarFooterText}
             </p>
-            <AskLumiqInput onSubmit={handleAsk} disabled={isAsking} />
+            <AskLumiqInput onSubmit={handleAsk} />
           </div>
         </aside>
       </div>

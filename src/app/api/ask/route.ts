@@ -4,11 +4,12 @@ import {
   askLumiq,
   DeepseekError,
   hasDeepseekKey,
+  type AskConversationItem,
   type AskFeedbackHistoryItem,
   type AskSessionStats,
 } from "@/src/lib/deepseek";
 
-const RATE_LIMIT_MS = 5_000;
+const RATE_LIMIT_MS = 3_000;
 const ASK_TIMEOUT_MS = 15_000;
 
 const lastAskBySession = new Map<string, number>();
@@ -19,6 +20,7 @@ interface AskRequestBody {
   question: string;
   code: string;
   feedbackHistory: AskFeedbackHistoryItem[];
+  askHistory?: AskConversationItem[];
   sessionStats: AskSessionStats;
   exerciseId: string;
 }
@@ -62,7 +64,11 @@ export async function POST(req: NextRequest) {
   const lastRequest = lastAskBySession.get(sessionId) ?? 0;
 
   if (now - lastRequest < RATE_LIMIT_MS) {
-    return NextResponse.json({ answer: FALLBACK_ANSWER });
+    const waitSec = Math.ceil((RATE_LIMIT_MS - (now - lastRequest)) / 1000);
+    return NextResponse.json({
+      answer: `Đợi ${waitSec} giây rồi hỏi tiếp nhé.`,
+      rateLimited: true,
+    });
   }
 
   lastAskBySession.set(sessionId, now);
@@ -88,6 +94,7 @@ export async function POST(req: NextRequest) {
         question: body.question.trim(),
         code: body.code,
         feedbackHistory: body.feedbackHistory,
+        askHistory: body.askHistory ?? [],
         sessionStats: body.sessionStats,
         exerciseId: body.exerciseId,
       }),
