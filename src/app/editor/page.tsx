@@ -70,6 +70,7 @@ interface AnalyzeResponse {
 const MAX_HISTORY = 10;
 const TRIGGERS_TO_LEVEL_UP = 10;
 const CONSECUTIVE_PATTERN_THRESHOLD = 3;
+const ASK_FETCH_TIMEOUT_MS = 20_000;
 
 function dominantErrorType(history: FeedbackEntry[]): string | null {
   const counts: Record<string, number> = {};
@@ -102,6 +103,7 @@ export default function EditorPage() {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryStats, setSummaryStats] = useState<SessionStats | null>(null);
   const [lastFlagAt, setLastFlagAt] = useState<number | null>(null);
+  const [analysisHint, setAnalysisHint] = useState<string | null>(null);
 
   const scaffoldLevelRef = useRef<1 | 2 | 3>(scaffoldLevel);
   scaffoldLevelRef.current = scaffoldLevel;
@@ -172,6 +174,7 @@ export default function EditorPage() {
     pauseDetector.stop();
     setSummaryState("hidden");
     setLastFlagAt(null);
+    setAnalysisHint(null);
   };
 
   const handleTrigger = async (payload: TriggerPayload) => {
@@ -202,6 +205,7 @@ export default function EditorPage() {
       const data = (await res.json()) as AnalyzeResponse;
 
       if (data.shouldFlag) {
+        setAnalysisHint(null);
         triggersSinceLastFlag.current = 0;
         setLastFlagAt(Date.now());
 
@@ -228,6 +232,9 @@ export default function EditorPage() {
 
         setFeedbackHistory((prev) => [...prev, entry].slice(-MAX_HISTORY));
       } else {
+        setAnalysisHint(
+          "Không phát hiện vấn đề — thử Hỏi Lumiq bên dưới nếu cần giải thích.",
+        );
         consecutiveFlagType.current = null;
         consecutiveFlagCount.current = 0;
 
@@ -258,6 +265,7 @@ export default function EditorPage() {
   const handleAsk = async (question: string) => {
     const id = crypto.randomUUID();
     const questionTimestamp = Date.now();
+    setAnalysisHint(null);
 
     setAskHistory((prev) => [
       ...prev,
@@ -279,6 +287,9 @@ export default function EditorPage() {
       }));
 
     const currentFeedback = feedbackHistoryRef.current;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), ASK_FETCH_TIMEOUT_MS);
 
     try {
       const res = await fetch("/api/ask", {
@@ -303,16 +314,21 @@ export default function EditorPage() {
           },
           exerciseId: currentExercise.id,
         }),
+        signal: controller.signal,
       });
 
-      const data = (await res.json()) as { answer: string };
+      const data = (await res.json()) as { answer?: string };
+      const answer =
+        typeof data.answer === "string" && data.answer.trim()
+          ? data.answer.trim()
+          : "Không nhận được phản hồi. Thử lại nhé.";
 
       setAskHistory((prev) =>
         prev.map((entry) =>
           entry.id === id
             ? {
                 ...entry,
-                answer: data.answer,
+                answer,
                 answerTimestamp: Date.now(),
                 isLoading: false,
               }
@@ -332,6 +348,8 @@ export default function EditorPage() {
             : entry,
         ),
       );
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 
@@ -385,7 +403,7 @@ export default function EditorPage() {
     ? `L${scaffoldLevel} · pattern: ${formatErrorLabelVi(notedPattern.current)}`
     : "Đang theo dõi cách bạn tư duy";
 
-  const showEmptyState = feedItems.length === 0 && !isAnalyzing;
+  const hasFeedContent = feedItems.length > 0 || isAnalyzing;
 
   const sidebarFooterText = isAnalyzing
     ? "↵ Lumiq đang phân tích..."
@@ -494,68 +512,72 @@ export default function EditorPage() {
             ref={feedRef}
             className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
           >
-            {showEmptyState && (
-              <div className="flex flex-1 items-center justify-center">
-                <p className="whitespace-pre-line text-center font-mono text-[12px] italic text-[#333]">
-                  {
-                    "Bắt đầu code bằng Python.\nLumiq quan sát cách bạn suy nghĩ —\nkhông chỉ những gì bạn viết."
-                  }
-                </p>
-              </div>
+            {!hasFeedContent && (
+              <p className="whitespace-pre-line py-8 text-center font-mono text-[12px] italic text-[#333]">
+                {
+                  "Bắt đầu code bằng Python.\nLumiq quan sát cách bạn suy nghĩ —\nkhông chỉ những gì bạn viết."
+                }
+              </p>
             )}
 
-            {!showEmptyState && (
-              <>
-                {feedItems.map((item) => {
-                  if (item.kind === "feedback") {
-                    return (
-                      <FeedbackCard
-                        key={item.key}
-                        errorType={item.entry.errorType}
-                        feedbackText={item.entry.feedbackText}
-                        triggerType={item.entry.triggerType}
-                        timestamp={item.entry.timestamp}
-                        shouldFlag={item.entry.shouldFlag}
-                      />
-                    );
-                  }
-                  if (item.kind === "question") {
-                    return (
-                      <UserQuestionBubble
-                        key={item.key}
-                        question={item.text}
-                        timestamp={item.timestamp}
-                      />
-                    );
-                  }
-                  return (
-                    <FeedbackCard
-                      key={item.key}
-                      errorType={null}
-                      feedbackText={item.text}
-                      timestamp={item.timestamp}
-                      shouldFlag
-                      variant="answer"
-                      isLoading={item.isLoading}
-                    />
-                  );
-                })}
-                {isAnalyzing && (
+            {analysisHint && (
+              <p className="rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] px-3 py-2 font-mono text-[11px] text-[#555]">
+                {analysisHint}
+              </p>
+            )}
+
+            {feedItems.map((item) => {
+              if (item.kind === "feedback") {
+                return (
                   <FeedbackCard
-                    errorType={null}
-                    feedbackText={null}
-                    timestamp={Date.now()}
-                    shouldFlag={false}
-                    isLoading
+                    key={item.key}
+                    errorType={item.entry.errorType}
+                    feedbackText={item.entry.feedbackText}
+                    triggerType={item.entry.triggerType}
+                    timestamp={item.entry.timestamp}
+                    shouldFlag={item.entry.shouldFlag}
                   />
-                )}
-              </>
+                );
+              }
+              if (item.kind === "question") {
+                return (
+                  <UserQuestionBubble
+                    key={item.key}
+                    question={item.text}
+                    timestamp={item.timestamp}
+                  />
+                );
+              }
+              return (
+                <FeedbackCard
+                  key={item.key}
+                  errorType={null}
+                  feedbackText={item.text}
+                  timestamp={item.timestamp}
+                  shouldFlag
+                  variant="answer"
+                  isLoading={item.isLoading}
+                />
+              );
+            })}
+
+            {isAnalyzing && (
+              <FeedbackCard
+                errorType={null}
+                feedbackText={null}
+                timestamp={Date.now()}
+                shouldFlag={false}
+                isLoading
+              />
             )}
           </div>
 
           <div className="shrink-0 border-t-[0.5px] border-[#1e1e1e] px-4 py-2.5">
             <p className="mb-2 font-mono text-[10px] text-[#333]">
               {sidebarFooterText}
+            </p>
+            <p className="mb-1.5 font-mono text-[9px] text-[#333]">
+              Nhấn Enter hoặc Gửi để hỏi Lumiq
             </p>
             <AskLumiqInput onSubmit={handleAsk} />
           </div>

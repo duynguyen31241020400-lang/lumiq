@@ -73,7 +73,10 @@ export default function FeedbackCard({
       : null;
 
   return (
-    <div className="lumiq-fade-in rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] p-3">
+    <div
+      className="lumiq-fade-in rounded-md border-[0.5px] border-[#2a2a2a] bg-[#141414] p-3"
+      aria-label={isAnswer ? "Lumiq trả lời" : label ?? "Phản hồi Lumiq"}
+    >
       <div className="mb-2 flex items-center gap-2">
         <span
           className="h-2 w-2 shrink-0 rounded-full"
@@ -92,11 +95,15 @@ export default function FeedbackCard({
         </span>
       </div>
 
-      {feedbackText && (
+      {feedbackText ? (
         <p className="font-sans text-[12px] leading-[1.6] text-[#ccc]">
           {feedbackText}
         </p>
-      )}
+      ) : isAnswer ? (
+        <p className="font-sans text-[12px] italic text-[#555]">
+          Không nhận được phản hồi. Thử lại nhé.
+        </p>
+      ) : null}
     </div>
   );
 }
