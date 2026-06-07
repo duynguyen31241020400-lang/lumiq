@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { runPythonCode } from "@/src/lib/pyodideRunner";
+import { getPyodide, runPythonCode } from "@/src/lib/pyodideRunner";
 
 interface PythonTerminalProps {
   getCode: () => string;
@@ -15,11 +15,32 @@ type TerminalLine =
 
 export default function PythonTerminal({ getCode }: PythonTerminalProps) {
   const [lines, setLines] = useState<TerminalLine[]>([
-    { kind: "system", text: "Nhấn ▶ Chạy để thực thi code Python." },
+    {
+      kind: "system",
+      text: "Nhấn ▶ Chạy để thực thi code Python. (Lần đầu tải runtime ~10s)",
+    },
   ]);
   const [isRunning, setIsRunning] = useState(false);
-  const [isLoadingRuntime, setIsLoadingRuntime] = useState(false);
+  const [runtimeState, setRuntimeState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
   const outputRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setRuntimeState("loading");
+    getPyodide()
+      .then(() => setRuntimeState("ready"))
+      .catch((err) => {
+        setRuntimeState("error");
+        setLines((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Không tải được Python: ${(err as Error).message}`,
+          },
+        ]);
+      });
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     const el = outputRef.current;
@@ -34,12 +55,19 @@ export default function PythonTerminal({ getCode }: PythonTerminalProps) {
     const code = getCode().trim();
     if (!code || isRunning) return;
 
+    if (runtimeState === "error") {
+      setLines((prev) => [
+        ...prev,
+        {
+          kind: "error",
+          text: "Python runtime chưa sẵn sàng. Tải lại trang (Ctrl+Shift+R).",
+        },
+      ]);
+      return;
+    }
+
     setIsRunning(true);
-    setIsLoadingRuntime(true);
-    setLines((prev) => [
-      ...prev,
-      { kind: "system", text: ">>> đang chạy..." },
-    ]);
+    setLines((prev) => [...prev, { kind: "system", text: ">>> đang chạy..." }]);
 
     try {
       const result = await runPythonCode(code);
@@ -57,28 +85,47 @@ export default function PythonTerminal({ getCode }: PythonTerminalProps) {
         }
         return next;
       });
-    } catch {
+      setRuntimeState("ready");
+    } catch (err) {
       setLines((prev) => {
         const withoutPending = prev.slice(0, -1);
         return [
           ...withoutPending,
           {
             kind: "error",
-            text: "Không thể chạy Python. Tải lại trang và thử lại.",
+            text: `Lỗi chạy Python: ${(err as Error).message}`,
           },
         ];
       });
+      setRuntimeState("error");
     } finally {
       setIsRunning(false);
-      setIsLoadingRuntime(false);
     }
   };
+
+  const runLabel =
+    isRunning && runtimeState === "loading"
+      ? "Đang tải Python..."
+      : isRunning
+        ? "Đang chạy..."
+        : runtimeState === "loading"
+          ? "Tải Python..."
+          : "▶ Chạy";
 
   return (
     <div className="flex h-36 shrink-0 flex-col border-t-[0.5px] border-[#1e1e1e] bg-[#0a0a0a]">
       <div className="flex h-7 shrink-0 items-center justify-between border-b-[0.5px] border-[#1e1e1e] bg-[#0f0f0f] px-3">
         <span className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
           Terminal
+          {runtimeState === "ready" && (
+            <span className="ml-2 text-[#4ade80]">● Python sẵn sàng</span>
+          )}
+          {runtimeState === "loading" && (
+            <span className="ml-2 text-[#888]">○ đang tải...</span>
+          )}
+          {runtimeState === "error" && (
+            <span className="ml-2 text-[#ef476f]">● lỗi</span>
+          )}
         </span>
         <button
           type="button"
@@ -86,7 +133,7 @@ export default function PythonTerminal({ getCode }: PythonTerminalProps) {
           disabled={isRunning}
           className="rounded border-[0.5px] border-[#2a2a2a] bg-[#141414] px-2.5 py-0.5 font-mono text-[10px] text-[#E8E0D0] hover:border-[#444] disabled:opacity-40"
         >
-          {isLoadingRuntime && isRunning ? "Đang tải..." : "▶ Chạy"}
+          {runLabel}
         </button>
       </div>
 
