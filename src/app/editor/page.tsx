@@ -485,7 +485,10 @@ export default function EditorPage() {
                 onCursorChange={(line, col) => setCursorPos({ line, col })}
               />
             </div>
-            <PythonTerminal getCode={getEditorValue} />
+            <PythonTerminal
+              getCode={getEditorValue}
+              sessionId={sessionId.current}
+            />
           </div>
 
           <div className="flex h-7 shrink-0 items-center justify-between border-t-[0.5px] border-[#1e1e1e] bg-[#0f0f0f] px-4 font-mono text-[10px] text-[#555]">
