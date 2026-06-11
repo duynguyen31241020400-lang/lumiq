@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import os from "os";
 import path from "path";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -5,8 +7,14 @@ import { NextRequest, NextResponse } from "next/server";
 const MAX_CODE_LENGTH = 8_000;
 const RUN_TIMEOUT_MS = 12_000;
 const RATE_LIMIT_MS = 2_000;
-
-const PYODIDE_DIR = path.join(process.cwd(), "node_modules", "pyodide") + path.sep;
+const PYODIDE_VERSION = "0.26.4";
+const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+const PYODIDE_FILES = [
+  "pyodide.asm.js",
+  "pyodide.asm.wasm",
+  "python_stdlib.zip",
+  "pyodide-lock.json",
+];
 
 const lastRunByKey = new Map<string, number>();
 
@@ -16,13 +24,52 @@ type PyodideInterface = {
   setStderr: (options: { batched: (s: string) => void }) => void;
 };
 
+let pyodideDirReady: Promise<string> | null = null;
 let pyodideReady: Promise<PyodideInterface> | null = null;
+
+function localPyodideCandidates(): string[] {
+  return [
+    path.join(process.cwd(), "public", "pyodide"),
+    path.join(process.cwd(), "node_modules", "pyodide"),
+  ];
+}
+
+async function downloadPyodideTo(dir: string): Promise<void> {
+  mkdirSync(dir, { recursive: true });
+  for (const file of PYODIDE_FILES) {
+    const dest = path.join(dir, file);
+    if (existsSync(dest)) continue;
+    const res = await fetch(`${PYODIDE_CDN}${file}`);
+    if (!res.ok) {
+      throw new Error(`Không tải được ${file} từ CDN.`);
+    }
+    writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+  }
+}
+
+async function ensurePyodideDir(): Promise<string> {
+  for (const dir of localPyodideCandidates()) {
+    if (existsSync(path.join(dir, "pyodide.asm.js"))) {
+      return dir + path.sep;
+    }
+  }
+
+  const tmpDir = path.join(os.tmpdir(), "lumiq-pyodide");
+  if (!existsSync(path.join(tmpDir, "pyodide.asm.js"))) {
+    await downloadPyodideTo(tmpDir);
+  }
+  return tmpDir + path.sep;
+}
 
 async function getPyodide(): Promise<PyodideInterface> {
   if (!pyodideReady) {
     pyodideReady = (async () => {
+      if (!pyodideDirReady) {
+        pyodideDirReady = ensurePyodideDir();
+      }
+      const indexURL = await pyodideDirReady;
       const { loadPyodide } = await import("pyodide");
-      return loadPyodide({ indexURL: PYODIDE_DIR }) as Promise<PyodideInterface>;
+      return loadPyodide({ indexURL }) as Promise<PyodideInterface>;
     })();
   }
   return pyodideReady;
@@ -47,7 +94,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const clientKey =
@@ -84,7 +131,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const pyodide = await withTimeout(getPyodide(), 25_000);
+    const pyodide = await withTimeout(getPyodide(), 45_000);
     let stdout = "";
     let stderr = "";
 
@@ -99,6 +146,8 @@ export async function POST(req: NextRequest) {
       error: null,
     });
   } catch (err) {
+    pyodideReady = null;
+    pyodideDirReady = null;
     const message =
       err instanceof Error ? err.message : "Không chạy được Python.";
     return NextResponse.json({
