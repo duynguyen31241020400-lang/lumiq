@@ -1,10 +1,4 @@
 {
   "framework": "nextjs",
-  "outputDirectory": ".next",
-  "functions": {
-    "src/app/api/run/route.ts": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  }
+  "outputDirectory": ".next"
 }

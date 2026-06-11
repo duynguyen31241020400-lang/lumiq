@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { runPythonCode } from "@/src/lib/pyodideRunner";
+import { getPyodide, runPythonCode } from "@/src/lib/pyodideRunner";
 
 interface PythonTerminalProps {
   getCode: () => string;
-  sessionId?: string;
 }
 
 type TerminalLine =
@@ -14,23 +13,48 @@ type TerminalLine =
   | { kind: "output"; text: string }
   | { kind: "error"; text: string };
 
-export default function PythonTerminal({
-  getCode,
-  sessionId,
-}: PythonTerminalProps) {
+export default function PythonTerminal({ getCode }: PythonTerminalProps) {
   const [lines, setLines] = useState<TerminalLine[]>([
     {
       kind: "system",
-      text: "Nhấn ▶ Chạy để thực thi code Python. (Lần đầu có thể mất ~5s)",
+      text: "Nhấn ▶ Chạy để thực thi code. Lần đầu tải Python ~10–20s.",
     },
   ]);
   const [isRunning, setIsRunning] = useState(false);
+  const [runtimeState, setRuntimeState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const outputRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    getPyodide()
+      .then(() => {
+        setRuntimeState("ready");
+        setLines((prev) => [
+          ...prev,
+          { kind: "system", text: "Python sẵn sàng." },
+        ]);
+      })
+      .catch((err) => {
+        setRuntimeState("error");
+        setLines((prev) => [
+          ...prev,
+          {
+            kind: "error",
+            text: `Không tải Python: ${(err as Error).message}`,
+          },
+        ]);
+      });
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     const el = outputRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [lines, scrollToBottom]);
 
   const handleRun = async () => {
     const code = getCode().trim();
@@ -40,35 +64,29 @@ export default function PythonTerminal({
     setLines((prev) => [...prev, { kind: "system", text: ">>> đang chạy..." }]);
 
     try {
-      const result = await runPythonCode(code, sessionId);
+      const result = await runPythonCode(code);
       setLines((prev) => {
         const withoutPending = prev.slice(0, -1);
         const next: TerminalLine[] = [
           ...withoutPending,
           { kind: "system", text: ">>> chạy xong" },
         ];
-        if (result.output) {
-          next.push({ kind: "output", text: result.output });
-        }
-        if (result.error) {
-          next.push({ kind: "error", text: result.error });
-        }
+        if (result.output) next.push({ kind: "output", text: result.output });
+        if (result.error) next.push({ kind: "error", text: result.error });
         return next;
       });
+      if (!result.error) setRuntimeState("ready");
     } catch (err) {
       setLines((prev) => {
         const withoutPending = prev.slice(0, -1);
         return [
           ...withoutPending,
-          {
-            kind: "error",
-            text: `Lỗi: ${(err as Error).message}`,
-          },
+          { kind: "error", text: `Lỗi: ${(err as Error).message}` },
         ];
       });
+      setRuntimeState("error");
     } finally {
       setIsRunning(false);
-      scrollToBottom();
     }
   };
 
@@ -77,6 +95,15 @@ export default function PythonTerminal({
       <div className="flex h-7 shrink-0 items-center justify-between border-b-[0.5px] border-[#1e1e1e] bg-[#0f0f0f] px-3">
         <span className="font-mono text-[10px] uppercase tracking-widest text-[#555]">
           Terminal
+          {runtimeState === "ready" && (
+            <span className="ml-2 text-[#4ade80]">● sẵn sàng</span>
+          )}
+          {runtimeState === "loading" && (
+            <span className="ml-2 text-[#888]">○ đang tải...</span>
+          )}
+          {runtimeState === "error" && (
+            <span className="ml-2 text-[#ef476f]">● lỗi</span>
+          )}
         </span>
         <button
           type="button"
