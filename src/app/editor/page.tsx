@@ -166,14 +166,28 @@ export default function EditorPage() {
     scrollFeedToBottom();
   }, [feedItems, isAnalyzing, scrollFeedToBottom]);
 
-  const selectExercise = (exercise: Exercise) => {
-    setCurrentExercise(exercise);
+  const resetSession = (exercise?: Exercise) => {
+    if (exercise) setCurrentExercise(exercise);
     setFeedbackHistory([]);
     setAskHistory([]);
     eventBuffer.clear();
     pauseDetector.stop();
     setSummaryState("hidden");
     setLastFlagAt(null);
+    setAnalysisHint(null);
+    setScaffoldLevel(1);
+    triggersSinceLastFlag.current = 0;
+    consecutiveFlagType.current = null;
+    consecutiveFlagCount.current = 0;
+    notedPattern.current = null;
+    sessionId.current = crypto.randomUUID();
+    sessionStartedAt.current = Date.now();
+  };
+
+  const selectExercise = (exercise: Exercise) => {
+    setCurrentExercise(exercise);
+    pauseDetector.stop();
+    setSummaryState("hidden");
     setAnalysisHint(null);
   };
 
@@ -354,14 +368,18 @@ export default function EditorPage() {
   };
 
   const handleEndSession = async () => {
+    if (isAnalyzing) return;
+
     setSummaryState("loading");
 
-    const historyForApi: SessionFeedbackEntry[] = feedbackHistory.map((e) => ({
-      errorType: e.errorType,
-      feedbackText: e.feedbackText,
-      timestamp: e.timestamp,
-      triggerType: e.triggerType,
-    }));
+    const historyForApi: SessionFeedbackEntry[] = feedbackHistoryRef.current.map(
+      (e) => ({
+        errorType: e.errorType,
+        feedbackText: e.feedbackText,
+        timestamp: e.timestamp,
+        triggerType: e.triggerType,
+      }),
+    );
 
     const triggerCount = eventBuffer.getTriggerCount();
 
@@ -455,7 +473,8 @@ export default function EditorPage() {
           <button
             type="button"
             onClick={handleEndSession}
-            className="rounded border-[0.5px] border-[#2a2a2a] px-3 py-1 font-mono text-[11px] text-[#555] hover:text-[#999]"
+            disabled={isAnalyzing}
+            className="rounded border-[0.5px] border-[#2a2a2a] px-3 py-1 font-mono text-[11px] text-[#555] hover:text-[#999] disabled:opacity-40"
           >
             Kết thúc phiên
           </button>
@@ -597,11 +616,8 @@ export default function EditorPage() {
           stats={summaryStats}
           exercise={currentExercise}
           onTryAnother={() => {
-            setSummaryState("hidden");
             const nextIdx = (exerciseIndex + 1) % exercises.length;
-            selectExercise(exercises[nextIdx]);
-            sessionId.current = crypto.randomUUID();
-            sessionStartedAt.current = Date.now();
+            resetSession(exercises[nextIdx]);
           }}
           onDone={() => router.push("/")}
         />

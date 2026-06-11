@@ -82,12 +82,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const flagCount = body.feedbackHistory?.length ?? 0;
+  const feedbackHistory = body.feedbackHistory ?? [];
+  const flagCount = feedbackHistory.length;
   const durationMinutes = Math.max(
     1,
     Math.round((Date.now() - (body.sessionStartedAt ?? Date.now())) / 60_000),
   );
-  const dominant = dominantErrorType(body.feedbackHistory ?? []);
+  const dominant = dominantErrorType(feedbackHistory);
 
   const stats = {
     triggerCount: body.triggerCount ?? 0,
@@ -97,11 +98,23 @@ export async function POST(req: NextRequest) {
     scaffoldLevel: body.scaffoldLevel ?? 1,
   };
 
+  function buildFallbackSummary(): string {
+    if (flagCount === 0) {
+      return "Không phát hiện vấn đề — bạn làm tốt hoặc phiên quá ngắn để quan sát.";
+    }
+    const highlights = feedbackHistory
+      .slice(0, 3)
+      .map((e) => e.feedbackText)
+      .filter(Boolean)
+      .join(" ");
+    return `Phiên có ${flagCount} phát hiện. ${highlights || "Xem lại các gợi ý Lumiq đã đưa trong lúc code."}`;
+  }
+
   let summary: string | null = null;
 
   if (hasDeepseekKey()) {
     try {
-      summary = await generateSummary(body.feedbackHistory ?? [], {
+      summary = await generateSummary(feedbackHistory, {
         exerciseTitle: body.exerciseTitle ?? "Exercise",
         triggerCount: body.triggerCount ?? 0,
         flagCount,
@@ -113,12 +126,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!summary) {
-    return NextResponse.json({
-      status: "failed",
-      summary: null,
-      stats,
-      latencyMs: Date.now() - startedAt,
-    });
+    summary = buildFallbackSummary();
   }
 
   if (isUuid(body.sessionId)) {

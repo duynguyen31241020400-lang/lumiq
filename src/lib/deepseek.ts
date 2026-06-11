@@ -225,7 +225,10 @@ export async function analyzeCode(params: {
 // ─── generateSummary ──────────────────────────────────────────────────────────
 
 const SUMMARY_SYSTEM_PROMPT = `Bạn là Lumiq Observer đang tổng kết một phiên lập trình. Hãy đưa ra nhận xét thật thà, cụ thể, hữu ích về cách người học tư duy khi code — không phải lời khen chung chung.
-Tập trung vào PATTERN, không phải lỗi đơn lẻ. Chỉ ra MỘT điều họ cần cải thiện lần sau. Nếu không có flag: "Không phát hiện vấn đề — bạn làm tốt hoặc phiên quá ngắn để quan sát." Format tự chọn (2-3 câu hoặc 3 gạch đầu dòng). Tối đa 100 từ. Không nói "giỏi lắm" hay "cố lên".`;
+Tập trung vào PATTERN, không phải lỗi đơn lẻ. Chỉ ra MỘT điều họ cần cải thiện lần sau.
+QUAN TRỌNG: Nếu context.flagCount > 0 hoặc sessionLog có mục, PHẢI nhắc cụ thể các phát hiện đó. Không được nói "0 flag" hay "không phát hiện" khi đã có flag.
+Chỉ khi context.flagCount === 0 và sessionLog rỗng: "Không phát hiện vấn đề — bạn làm tốt hoặc phiên quá ngắn để quan sát."
+Format tự chọn (2-3 câu hoặc 3 gạch đầu dòng). Tối đa 100 từ. Không nói "giỏi lắm" hay "cố lên".`;
 
 const FALLBACK_SUMMARY =
   "Bạn đã làm bài với vài lần dừng lại để suy nghĩ. Xem lại những chỗ bạn pause — đó là nơi tư duy chậm lại. Thử bài tiếp theo, tập trung một khái niệm mỗi lần.";
